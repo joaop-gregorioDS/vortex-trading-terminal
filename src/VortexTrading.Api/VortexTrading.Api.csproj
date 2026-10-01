@@ -1,6 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\VortexTrading.Application\VortexTrading.Application.csproj" />
     <ProjectReference Include="..\VortexTrading.Infrastructure\VortexTrading.Infrastructure.csproj" />
   </ItemGroup>
@@ -10,6 +17,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <NoDefaultLaunchSettingsFile>True</NoDefaultLaunchSettingsFile>
+    <UserSecretsId>46910865-6270-4e96-aed2-41972484b9d6</UserSecretsId>
   </PropertyGroup>
 
 </Project>

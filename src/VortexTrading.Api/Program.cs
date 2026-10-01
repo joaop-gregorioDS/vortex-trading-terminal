@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpLogging;
 using Microsoft.Extensions.Options;
 using VortexTrading.Api.Configuration;
@@ -27,7 +28,6 @@ builder.Services.AddProblemDetails(options =>
     };
 });
 
-builder.Services.AddHealthChecks();
 builder.Services.AddHttpLogging(options =>
 {
     options.LoggingFields = HttpLoggingFields.RequestMethod
@@ -47,6 +47,18 @@ app.UseExceptionHandler(new ExceptionHandlerOptions
 app.UseStatusCodePages();
 
 app.MapHealthChecks("/health")
+    .WithMetadata(new HttpMethodMetadata([HttpMethods.Get]));
+
+app.MapHealthChecks("/health/live", new HealthCheckOptions
+{
+    Predicate = _ => false
+})
+    .WithMetadata(new HttpMethodMetadata([HttpMethods.Get]));
+
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = registration => registration.Tags.Contains("ready")
+})
     .WithMetadata(new HttpMethodMetadata([HttpMethods.Get]));
 
 var applicationName = app.Services
