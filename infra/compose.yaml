@@ -1,0 +1,61 @@
+name: vortex-trading
+
+services:
+  postgres:
+    image: postgres:18.6-bookworm
+    environment:
+      POSTGRES_DB: vortex_trading
+      POSTGRES_USER: vortex_trading
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in infra/.env}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    networks:
+      - trading
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: "no"
+
+  redis:
+    image: redis:8.10.2-trixie
+    user: redis
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in infra/.env}
+    command:
+      - sh
+      - -ec
+      - |
+        case "$$REDIS_PASSWORD" in
+          *[!0-9a-fA-F]*|"") echo "REDIS_PASSWORD must contain only hexadecimal characters" >&2; exit 1 ;;
+        esac
+        exec redis-server - <<EOF
+        appendonly yes
+        requirepass "$$REDIS_PASSWORD"
+        EOF
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - trading
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli -e --raw PING | grep -qx PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: "no"
+
+volumes:
+  postgres-data:
+  redis-data:
+
+networks:
+  trading:
+    name: vortex-trading-network
+    driver: bridge
