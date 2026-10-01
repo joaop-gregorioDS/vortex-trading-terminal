@@ -5,4 +5,7 @@
     <Project Path="src/VortexTrading.Domain/VortexTrading.Domain.csproj" />
     <Project Path="src/VortexTrading.Infrastructure/VortexTrading.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/tests/backend/">
+    <Project Path="tests/backend/VortexTrading.Domain.Tests/VortexTrading.Domain.Tests.csproj" />
+  </Folder>
 </Solution>
