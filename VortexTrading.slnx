@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/VortexTrading.Api/VortexTrading.Api.csproj" />
+    <Project Path="src/VortexTrading.Application/VortexTrading.Application.csproj" />
+    <Project Path="src/VortexTrading.Domain/VortexTrading.Domain.csproj" />
+    <Project Path="src/VortexTrading.Infrastructure/VortexTrading.Infrastructure.csproj" />
+  </Folder>
+</Solution>
