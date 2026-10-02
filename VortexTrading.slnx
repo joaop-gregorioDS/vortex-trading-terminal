@@ -8,5 +8,6 @@
   <Folder Name="/tests/backend/">
     <Project Path="tests/backend/VortexTrading.Application.Tests/VortexTrading.Application.Tests.csproj" />
     <Project Path="tests/backend/VortexTrading.Domain.Tests/VortexTrading.Domain.Tests.csproj" />
+    <Project Path="tests/backend/VortexTrading.Infrastructure.Tests/VortexTrading.Infrastructure.Tests.csproj" />
   </Folder>
 </Solution>
