@@ -7,7 +7,8 @@ The Vortex Trading Terminal has one deterministic Indicator Engine in
 Robots will reuse its contracts and calculations instead of maintaining separate
 frontend or execution-specific formulas. This foundation provides the batch
 contract, Simple Moving Average, Exponential Moving Average, Wilder Relative
-Strength Index, Wilder Average True Range, and Moving Average Convergence Divergence;
+Strength Index, Wilder Average True Range, Moving Average Convergence Divergence,
+and Bollinger Bands;
 no consumer integration is introduced.
 
 The engine uses the existing Domain `Candle`, `UtcInstant`, and decimal prices.
@@ -49,7 +50,8 @@ rejected with parameter `points`.
 Single-series indicators SMA, EMA, RSI, and ATR keep `IIndicator -> IndicatorSeries`.
 The additive, independent `IMultiSeriesIndicator` exposes `Name` and
 `MultiSeriesIndicatorResult Calculate(IReadOnlyList<Candle> candles)` without
-inheriting IIndicator. MACD is the first concrete multi-series indicator, described below.
+inheriting IIndicator. MACD and Bollinger Bands implement this multi-series contract,
+as described below.
 
 `NamedIndicatorSeries` is an immutable pair of trimmed, nonblank, case-preserved
 `Name` and the exact supplied non-null `IndicatorSeries`. Pair equality uses the
@@ -226,13 +228,50 @@ is introduced; arithmetic overflow aborts the call. Valid extension preserves al
 previous points in every component, subject to whole-batch validation and overflow.
 See [ADR-023](../adr/ADR-023-moving-average-convergence-divergence.md), status `Proposed`.
 
+## Deterministic batch Bollinger Bands
+
+`BollingerBands(period, standardDeviationMultiplier)` implements `IMultiSeriesIndicator`
+with `Name = "Bollinger Bands"`. Period and decimal multiplier K must be positive;
+otherwise throw `ArgumentOutOfRangeException` for their respective parameter.
+The unchanged `SimpleMovingAverage(Period)` supplies Middle exactly. For each window,
+population variance is `sum((Close - Middle)^2) / Period`, using direct deviations
+rather than `E[x^2] - E[x]^2`. Upper/Lower are `Middle +/- K * sqrt(variance)`.
+All three series are ordered `Middle`, `Upper`, `Lower` and synchronized in count
+and Time. They begin at the Period-th Candle.CloseTime; each count is
+`max(0, candles.Count - Period + 1)`. Empty/warm-up input retains three empty series.
+
+Square root is a private decimal Newton-Raphson implementation: zero returns zero,
+negative input is rejected, and the initial estimate is variance for variance >= 1,
+otherwise 1. Each iteration uses `current / 2m + (variance / current) / 2m` to avoid
+an unnecessarily overflowing numerator sum. The primary criterion returns next when
+its absolute difference from current is <= `1e-27m`, including fixed points.
+Otherwise retain one previous approximation and recognize only `next == previous`
+with `current != next`, the finite-decimal two-cycle `A -> B -> A`.
+Choose between current and next by minimum representable `Abs(x - variance / x)`;
+only an exact error tie selects the smaller candidate. This avoids unnecessary
+candidate squaring. After 128 iterations without primary convergence or two-cycle
+stabilization, throw ArithmeticException. The bound remains defensive and tolerance
+unchanged; there is no generic cycle detector or universal squared-residual guarantee.
+The valid window 50, 400, 5 has a representational cycle with step `1e-26` and now
+produces all three bands normally. Tests cover minimum-error selection in both
+numeric directions, exact determinism, prefix invariance, and stateless reuse.
+
+All arithmetic stays decimal: no floating-point conversion, explicit rounding,
+clamping, or negative-variance repair. Natural overflow propagates; subminimum squared
+deviations may underflow under decimal semantics. Full input validation precedes
+warm-up and arithmetic. Gaps do not reset windows; results are immutable and batches
+stateless, deterministic, and prefix invariant when calculation succeeds. Direct
+variance takes O(n * Period) time; bounded Newton and O(n) snapshots require no shared
+math library or statistics framework. See
+[ADR-024](../adr/ADR-024-bollinger-bands.md), status `Proposed`.
+
 ## Limits and deferred work
 
 The model is finite batch calculation over a coherent closed-candle sequence.
 Callers should not mutate source collections concurrently while supplying a
 batch. Future incremental stateful calculation requires its own contract review.
 
-Stochastic, Bollinger Bands, VWAP, ADX, and OBV remain deferred,
+Stochastic, VWAP, ADX, and OBV remain deferred,
 as do indicator caching, consumer adapters, charts, Backtesting, Strategies,
 Robots, trading, signals, risk, orders, and persistence. Decimal is the decision
 for this SMA; statistical indicators may later justify double internally through
