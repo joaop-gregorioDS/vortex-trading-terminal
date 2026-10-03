@@ -7,7 +7,8 @@ The Vortex Trading Terminal has one deterministic Indicator Engine in
 Robots will reuse its contracts and calculations instead of maintaining separate
 frontend or execution-specific formulas. This foundation provides the batch
 contract, Simple Moving Average, Exponential Moving Average, Wilder Relative
-Strength Index, and Wilder Average True Range; no consumer integration is introduced.
+Strength Index, Wilder Average True Range, and Moving Average Convergence Divergence;
+no consumer integration is introduced.
 
 The engine uses the existing Domain `Candle`, `UtcInstant`, and decimal prices.
 It does not introduce another OHLCV model or change Domain, Infrastructure,
@@ -48,7 +49,7 @@ rejected with parameter `points`.
 Single-series indicators SMA, EMA, RSI, and ATR keep `IIndicator -> IndicatorSeries`.
 The additive, independent `IMultiSeriesIndicator` exposes `Name` and
 `MultiSeriesIndicatorResult Calculate(IReadOnlyList<Candle> candles)` without
-inheriting IIndicator. No concrete multi-series indicator or MACD is implemented.
+inheriting IIndicator. MACD is the first concrete multi-series indicator, described below.
 
 `NamedIndicatorSeries` is an immutable pair of trimmed, nonblank, case-preserved
 `Name` and the exact supplied non-null `IndicatorSeries`. Pair equality uses the
@@ -192,13 +193,46 @@ decimal precision, overflow propagation, and prefix invariance apply. TR stays
 private to ATR; no shared Wilder smoother or indicator validator is introduced.
 See [ADR-021](../adr/ADR-021-wilder-average-true-range.md), status `Proposed`.
 
+## Deterministic batch MACD
+
+`MovingAverageConvergenceDivergence(fastPeriod, slowPeriod, signalPeriod)` implements
+`IMultiSeriesIndicator`, reports `Name = "MACD"`, and always returns three series in
+the order `MACD`, `Signal`, `Histogram`, including three empty series for empty input.
+Periods are positive and FastPeriod must be less than SlowPeriod; invalid individual
+periods throw `ArgumentOutOfRangeException` for their parameter, and invalid ordering
+throws `ArgumentException` for `fastPeriod`. No default periods are imposed.
+
+Fast and Slow reuse the unchanged `ExponentialMovingAverage` over `Candle.Close`.
+Fast evolves from its own seed; corresponding candle ordinals align it with Slow.
+`MACD = Fast EMA - Slow EMA` starts at the SlowPeriod-th candle. Signal applies
+the same Vortex EMA mathematics directly to MACD values: SMA seed of the first
+SignalPeriod MACD points, then alpha `2m / (SignalPeriod + 1m)` and the canonical
+weighted recurrence. No artificial candles or generic EMA helper are introduced.
+`Histogram = MACD - Signal` exists only where Signal exists. Signal and Histogram
+first appear at candle ordinal `SlowPeriod + SignalPeriod - 1` and share the
+corresponding MACD point's Time. Every Time comes from Candle.CloseTime.
+
+For C candles, MACDCount is `max(0, C - SlowPeriod + 1)`, SignalCount is
+`max(0, MACDCount - SignalPeriod + 1)`, and HistogramCount equals SignalCount.
+SignalPeriod one makes Signal equal MACD and Histogram zero. Insufficient Signal
+warm-up leaves Signal/Histogram empty without calculating a partial Signal seed.
+Different component lengths are intentional; alignment is private to MACD.
+
+Full snapshot validation precedes all warm-up returns and arithmetic. The existing
+input coherence, strict OpenTime ordering, temporal gaps, immutable results,
+stateless batch, and closed-candle responsibility boundaries apply. Decimal-only
+calculation is O(n), with O(n) memory. No rounding, clamping, or overflow fallback
+is introduced; arithmetic overflow aborts the call. Valid extension preserves all
+previous points in every component, subject to whole-batch validation and overflow.
+See [ADR-023](../adr/ADR-023-moving-average-convergence-divergence.md), status `Proposed`.
+
 ## Limits and deferred work
 
 The model is finite batch calculation over a coherent closed-candle sequence.
 Callers should not mutate source collections concurrently while supplying a
 batch. Future incremental stateful calculation requires its own contract review.
 
-MACD, Stochastic, Bollinger Bands, VWAP, ADX, and OBV remain deferred,
+Stochastic, Bollinger Bands, VWAP, ADX, and OBV remain deferred,
 as do indicator caching, consumer adapters, charts, Backtesting, Strategies,
 Robots, trading, signals, risk, orders, and persistence. Decimal is the decision
 for this SMA; statistical indicators may later justify double internally through
