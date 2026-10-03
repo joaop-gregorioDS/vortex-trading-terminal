@@ -8,7 +8,7 @@ Robots will reuse its contracts and calculations instead of maintaining separate
 frontend or execution-specific formulas. This foundation provides the batch
 contract, Simple Moving Average, Exponential Moving Average, Wilder Relative
 Strength Index, Wilder Average True Range, Moving Average Convergence Divergence,
-and Bollinger Bands;
+Bollinger Bands, and Slow Stochastic Oscillator;
 no consumer integration is introduced.
 
 The engine uses the existing Domain `Candle`, `UtcInstant`, and decimal prices.
@@ -50,8 +50,8 @@ rejected with parameter `points`.
 Single-series indicators SMA, EMA, RSI, and ATR keep `IIndicator -> IndicatorSeries`.
 The additive, independent `IMultiSeriesIndicator` exposes `Name` and
 `MultiSeriesIndicatorResult Calculate(IReadOnlyList<Candle> candles)` without
-inheriting IIndicator. MACD and Bollinger Bands implement this multi-series contract,
-as described below.
+inheriting IIndicator. MACD, Bollinger Bands, and Stochastic Oscillator implement
+this multi-series contract, as described below.
 
 `NamedIndicatorSeries` is an immutable pair of trimmed, nonblank, case-preserved
 `Name` and the exact supplied non-null `IndicatorSeries`. Pair equality uses the
@@ -265,13 +265,55 @@ variance takes O(n * Period) time; bounded Newton and O(n) snapshots require no 
 math library or statistics framework. See
 [ADR-024](../adr/ADR-024-bollinger-bands.md), status `Proposed`.
 
+## Deterministic batch Slow Stochastic Oscillator
+
+`StochasticOscillator(kPeriod, kSmoothingPeriod, dPeriod)` is the canonical Slow
+Stochastic, implementing `IMultiSeriesIndicator` with `Name = "Stochastic Oscillator"`.
+The three periods are read-only, positive, and independently validated; 14/3/3 is
+a conventional configuration rather than mandatory defaults.
+The existing Domain Candle supplies High, Low, and Close. For each KPeriod window:
+
+```text
+HighestHigh = maximum High within the window
+LowestLow = minimum Low within the window
+Raw %K = ((last Close - LowestLow) / (HighestHigh - LowestLow)) * 100m
+Slow %K = SMA of the last KSmoothingPeriod Raw %K values
+%D = SMA of the last DPeriod Slow %K values
+```
+
+When HighestHigh == LowestLow, Raw K is exactly `50m`, the neutral range policy.
+Raw K remains a private intermediate sequence, never a public third series.
+The two outputs are always ordered `%K`, `%D`, including empty series during warm-up.
+First Raw K belongs to candle K, first public K to K + S - 1, and first D to
+K + S + D - 2. For 14/3/3, public K starts at candle 16 and D at candle 18.
+For C candles, K count is `max(0, C - K - S + 2)` and D count is
+`max(0, C - K - S - D + 3)`, evaluated through independent stage sizes to avoid
+combined integer period overflow. Different public lengths during warm-up are
+intentional: do not pad, delay K, or duplicate D. Each point uses its window-ending
+Candle.CloseTime; D index j aligns with K index j + DPeriod - 1.
+
+Raw normalization divides before multiplying by 100 to avoid unnecessary overflow.
+All arithmetic is decimal, without rounding, clamping, or floating-point conversion.
+Private direct window means avoid outgoing-sum drift and synthetic candles; existing
+SMA and public contracts stay unchanged. Valid outputs remain 0..100, and natural
+OverflowException propagates. Positive Candle OHLC invariants prevent a valid
+range-subtraction overflow fixture; intermediate bounded sums also fit decimal.
+
+Full reference-snapshot validation precedes warm-up and arithmetic. Existing
+coherence, strictly increasing OpenTime, valid gaps, immutable results, stateless
+batch, determinism, closed-candle responsibility, and prefix invariance apply.
+Direct extreme search is O(n * KPeriod); direct intermediate means add
+O(n * (KSmoothingPeriod + DPeriod)), with O(n) memory. No shared rolling-extreme,
+intermediate SMA, or statistics abstraction is introduced. See
+[ADR-025](../adr/ADR-025-slow-stochastic-oscillator.md), status `Proposed`.
+
 ## Limits and deferred work
 
 The model is finite batch calculation over a coherent closed-candle sequence.
 Callers should not mutate source collections concurrently while supplying a
 batch. Future incremental stateful calculation requires its own contract review.
 
-Stochastic, VWAP, ADX, and OBV remain deferred,
+VWAP, ADX, and OBV remain deferred,
 as do indicator caching, consumer adapters, charts, Backtesting, Strategies,
 Robots, trading, signals, risk, orders, and persistence. Decimal is the decision
 for this SMA; statistical indicators may later justify double internally through
