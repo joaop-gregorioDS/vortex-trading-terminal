@@ -45,6 +45,26 @@ Later source collection changes cannot change the snapshot, including through
 casts to mutable collection interfaces. Null collections and null points are
 rejected with parameter `points`.
 
+Single-series indicators SMA, EMA, RSI, and ATR keep `IIndicator -> IndicatorSeries`.
+The additive, independent `IMultiSeriesIndicator` exposes `Name` and
+`MultiSeriesIndicatorResult Calculate(IReadOnlyList<Candle> candles)` without
+inheriting IIndicator. No concrete multi-series indicator or MACD is implemented.
+
+`NamedIndicatorSeries` is an immutable pair of trimmed, nonblank, case-preserved
+`Name` and the exact supplied non-null `IndicatorSeries`. Pair equality uses the
+ordinal name and existing series reference identity, not deep point equality.
+`MultiSeriesIndicatorResult` snapshots an enumerable of these pairs into ordered,
+read-only `Series`, with derived `Count`. Empty results are valid; null input,
+null elements, and duplicate names are rejected. Names are unique using
+`StringComparer.Ordinal`, so case differences remain distinct.
+
+`TryGetSeries` trims a nonblank lookup name and returns the exact series reference
+using ordinal comparison, or false/null when absent. Lookup is a simple O(k) scan
+over k named series. Counts and timestamps may differ between component series;
+there is no cross-series alignment, padding, metadata, point sorting, or point
+deduplication. IndicatorSeries retains responsibility for point immutability.
+See [ADR-022](../adr/ADR-022-multi-series-indicator-results.md), status `Proposed`.
+
 ## Deterministic batch SMA
 
 `SimpleMovingAverage(int period)` implements `IIndicator`, exposes read-only
