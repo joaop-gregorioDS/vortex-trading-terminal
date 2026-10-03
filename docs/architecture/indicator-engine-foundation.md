@@ -6,8 +6,8 @@ The Vortex Trading Terminal has one deterministic Indicator Engine in
 `VortexTrading.Application/Indicators`. Charts, Backtesting, Strategies, and
 Robots will reuse its contracts and calculations instead of maintaining separate
 frontend or execution-specific formulas. This foundation provides the batch
-contract, Simple Moving Average, and Exponential Moving Average; no consumer
-integration is introduced.
+contract, Simple Moving Average, Exponential Moving Average, and Wilder Relative
+Strength Index; no consumer integration is introduced.
 
 The engine uses the existing Domain `Candle`, `UtcInstant`, and decimal prices.
 It does not introduce another OHLCV model or change Domain, Infrastructure,
@@ -133,6 +133,11 @@ partial output.
   Candle.Close values. Its first point is emitted at the Nth Candle.CloseTime.
   Subsequent points use `alpha = 2m / (N + 1m)` and
   `EMA_t = alpha * Close_t + (1m - alpha) * EMA_(t-1)`.
+- `RelativeStrengthIndex`: decimal Wilder RSI of consecutive Candle.Close
+  changes. Gain is `max(change, 0)` and loss is `max(-change, 0)`. Seed averages
+  use the first N gains/losses, requiring N+1 supplied candles. The first point
+  belongs to the (N+1)th Candle.CloseTime. Later averages use
+  `(previous average * (N - 1) + current gain/loss) / N`, not EMA alpha.
 
 EMA uses the same full input validation before warm-up, immutable result types,
 closed-candle responsibility boundary, and stateless batch execution. Gaps do
@@ -141,13 +146,25 @@ and recursive products, and overflow propagates. SMA seed is computed directly,
 without invoking the SMA implementation. See
 [ADR-019](../adr/ADR-019-exponential-moving-average.md), status `Proposed`.
 
+RSI computes `RS = AverageGain / AverageLoss` and `100 - 100 / (1 + RS)`.
+Zero loss with positive gain produces 100; zero gain with positive loss produces
+0; both averages zero produces 50, the explicit Vortex flat-market convention.
+The range is 0..100 without clamping. At most N valid candles yields an empty
+series after full validation. Period one uses the current change and produces
+100, 0, or 50 for an increase, decrease, or flat change, respectively.
+
+RSI preserves the same validation, stateless batch, decimal precision, immutable
+results, CloseTime output, gaps, and no-look-ahead boundaries. Calculation is
+O(n); arithmetic overflow propagates, including seed sums or relative strength.
+See [ADR-020](../adr/ADR-020-wilder-relative-strength-index.md), status `Proposed`.
+
 ## Limits and deferred work
 
 The model is finite batch calculation over a coherent closed-candle sequence.
 Callers should not mutate source collections concurrently while supplying a
 batch. Future incremental stateful calculation requires its own contract review.
 
-RSI, ATR, MACD, Stochastic, Bollinger Bands, VWAP, ADX, and OBV remain deferred,
+ATR, MACD, Stochastic, Bollinger Bands, VWAP, ADX, and OBV remain deferred,
 as do indicator caching, consumer adapters, charts, Backtesting, Strategies,
 Robots, trading, signals, risk, orders, and persistence. Decimal is the decision
 for this SMA; statistical indicators may later justify double internally through
