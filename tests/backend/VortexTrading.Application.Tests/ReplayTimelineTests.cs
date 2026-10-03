@@ -168,6 +168,171 @@ public sealed class ReplayTimelineTests
         Assert.True(candle.Candle!.CloseTime.CompareTo(dataset.EndTime) > 0);
     }
 
+    [Fact]
+    public void ExplicitBoundsInitializeTheTimelineAndPreserveSuppliedReferences()
+    {
+        var start = new UtcInstant(new DateTimeOffset(2026, 10, 2, 10, 0, 0, TimeSpan.Zero));
+        var end = new UtcInstant(start.Value.AddHours(1));
+
+        var timeline = new ReplayTimeline(start, end);
+
+        Assert.Same(start, timeline.StartTime);
+        Assert.Same(end, timeline.EndTime);
+        Assert.Same(start, timeline.CurrentTime);
+    }
+
+    [Fact]
+    public void ExplicitBoundsRejectNullStartAtRuntime()
+    {
+        var exception = Assert.Throws<ArgumentNullException>(() => new ReplayTimeline(null!, End));
+
+        Assert.Equal("startTime", exception.ParamName);
+    }
+
+    [Fact]
+    public void ExplicitBoundsRejectNullEndAtRuntime()
+    {
+        var exception = Assert.Throws<ArgumentNullException>(() => new ReplayTimeline(Start, null!));
+
+        Assert.Equal("endTime", exception.ParamName);
+    }
+
+    [Fact]
+    public void ExplicitBoundsRejectAnEndBeforeTheStart()
+    {
+        var start = new UtcInstant(new DateTimeOffset(2026, 10, 2, 11, 0, 0, TimeSpan.Zero));
+        var end = new UtcInstant(start.Value.AddHours(-1));
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => new ReplayTimeline(start, end));
+
+        Assert.Equal("endTime", exception.ParamName);
+    }
+
+    [Fact]
+    public void EqualExplicitBoundsAllowOnlyTheirSingleInstant()
+    {
+        var end = new UtcInstant(Start.Value);
+        var timeline = new ReplayTimeline(Start, end);
+
+        Assert.Same(Start, timeline.StartTime);
+        Assert.Same(end, timeline.EndTime);
+        Assert.Same(Start, timeline.CurrentTime);
+        timeline.AdvanceTo(new UtcInstant(Start.Value));
+        Assert.Same(Start, timeline.CurrentTime);
+        Assert.Throws<ArgumentOutOfRangeException>(() => timeline.AdvanceTo(new UtcInstant(Start.Value.AddTicks(-1))));
+        Assert.Throws<ArgumentOutOfRangeException>(() => timeline.AdvanceTo(new UtcInstant(Start.Value.AddTicks(1))));
+        Assert.Same(Start, timeline.CurrentTime);
+    }
+
+    [Fact]
+    public void AdvancesWithinExplicitBoundsWithoutChangingThoseBounds()
+    {
+        var start = new UtcInstant(new DateTimeOffset(2026, 10, 2, 10, 0, 0, TimeSpan.Zero));
+        var end = new UtcInstant(start.Value.AddHours(1));
+        var middle = new UtcInstant(start.Value.AddMinutes(30));
+        var timeline = new ReplayTimeline(start, end);
+
+        timeline.AdvanceTo(middle);
+
+        Assert.Same(middle, timeline.CurrentTime);
+        Assert.Same(start, timeline.StartTime);
+        Assert.Same(end, timeline.EndTime);
+    }
+
+    [Fact]
+    public void AcceptsExactlyTheExplicitEnd()
+    {
+        var timeline = new ReplayTimeline(Start, End);
+
+        timeline.AdvanceTo(End);
+
+        Assert.Same(End, timeline.CurrentTime);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(11)]
+    public void RejectsInstantsOutsideExplicitBoundsWithoutChangingCurrentTime(int offsetTicks)
+    {
+        var timeline = new ReplayTimeline(Start, End);
+        var current = new UtcInstant(Start.Value.AddTicks(5));
+        timeline.AdvanceTo(current);
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => timeline.AdvanceTo(new UtcInstant(Start.Value.AddTicks(offsetTicks))));
+
+        Assert.Equal("instant", exception.ParamName);
+        Assert.Same(current, timeline.CurrentTime);
+        Assert.Same(Start, timeline.StartTime);
+        Assert.Same(End, timeline.EndTime);
+    }
+
+    [Fact]
+    public void ExplicitTimelineRejectsBackwardAdvanceWithinItsBounds()
+    {
+        var start = new UtcInstant(new DateTimeOffset(2026, 10, 2, 10, 0, 0, TimeSpan.Zero));
+        var timeline = new ReplayTimeline(start, new UtcInstant(start.Value.AddHours(1)));
+        var current = new UtcInstant(start.Value.AddMinutes(30));
+        timeline.AdvanceTo(current);
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => timeline.AdvanceTo(new UtcInstant(start.Value.AddMinutes(29))));
+
+        Assert.Equal("instant", exception.ParamName);
+        Assert.Same(current, timeline.CurrentTime);
+    }
+
+    [Fact]
+    public void EqualCurrentTimeRemainsANoOpWithExplicitBounds()
+    {
+        var timeline = new ReplayTimeline(Start, End);
+        var current = new UtcInstant(Start.Value.AddTicks(5));
+        timeline.AdvanceTo(current);
+
+        timeline.AdvanceTo(new UtcInstant(current.Value));
+
+        Assert.Same(current, timeline.CurrentTime);
+    }
+
+    [Fact]
+    public void ExplicitTimelineRejectsNullAdvanceWithoutChangingState()
+    {
+        var timeline = new ReplayTimeline(Start, End);
+
+        var exception = Assert.Throws<ArgumentNullException>(() => timeline.AdvanceTo(null));
+
+        Assert.Equal("instant", exception.ParamName);
+        Assert.Same(Start, timeline.CurrentTime);
+    }
+
+    [Fact]
+    public void ExplicitTimelineCanRepresentALaterExecutionHorizonWithoutADataset()
+    {
+        var start = new UtcInstant(new DateTimeOffset(2026, 10, 2, 10, 3, 0, TimeSpan.Zero));
+        var end = new UtcInstant(new DateTimeOffset(2026, 10, 2, 10, 5, 0, TimeSpan.Zero));
+        var timeline = new ReplayTimeline(start, end);
+
+        Assert.Same(start, timeline.CurrentTime);
+        timeline.AdvanceTo(end);
+
+        Assert.Same(end, timeline.CurrentTime);
+        Assert.Same(start, timeline.StartTime);
+        Assert.Same(end, timeline.EndTime);
+    }
+
+    [Fact]
+    public void ExplicitBoundsSupportTheFullInstantRangeWithoutDurationArithmetic()
+    {
+        var minimum = new UtcInstant(DateTimeOffset.MinValue);
+        var maximum = new UtcInstant(DateTimeOffset.MaxValue);
+        var timeline = new ReplayTimeline(minimum, maximum);
+
+        timeline.AdvanceTo(new UtcInstant(DateTimeOffset.MinValue.AddTicks(1)));
+        timeline.AdvanceTo(maximum);
+
+        Assert.Same(minimum, timeline.StartTime);
+        Assert.Same(maximum, timeline.EndTime);
+        Assert.Same(maximum, timeline.CurrentTime);
+    }
+
     private static HistoricalReplayDataset CreateDataset() => new([CreateTrade(End), CreateTrade(Start)]);
 
     private static ReplayEvent CreateTrade(UtcInstant time) => ReplayEvent.FromTrade(

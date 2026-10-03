@@ -2,7 +2,7 @@ using VortexTrading.Domain.Common.Time;
 
 namespace VortexTrading.Application.MarketData.Replay;
 
-/// <summary>Session-owned virtual time, advanced explicitly within one dataset range.</summary>
+/// <summary>A bounded monotonic virtual timeline, advanced explicitly by its owner.</summary>
 public sealed class ReplayTimeline
 {
     public UtcInstant StartTime { get; }
@@ -10,11 +10,22 @@ public sealed class ReplayTimeline
     public UtcInstant CurrentTime { get; private set; }
 
     public ReplayTimeline(HistoricalReplayDataset? dataset)
+        : this(dataset?.StartTime ?? throw new ArgumentNullException(nameof(dataset)), dataset!.EndTime)
     {
-        ArgumentNullException.ThrowIfNull(dataset);
-        StartTime = dataset.StartTime;
-        EndTime = dataset.EndTime;
-        CurrentTime = StartTime;
+    }
+
+    public ReplayTimeline(UtcInstant startTime, UtcInstant endTime)
+    {
+        ArgumentNullException.ThrowIfNull(startTime);
+        ArgumentNullException.ThrowIfNull(endTime);
+        if (endTime.CompareTo(startTime) < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(endTime), "Virtual time end must not precede its start.");
+        }
+
+        StartTime = startTime;
+        EndTime = endTime;
+        CurrentTime = startTime;
     }
 
     public void AdvanceTo(UtcInstant? instant)

@@ -53,13 +53,21 @@ Count é o número de ocorrências; StartTime é o menor ReplayTime e EndTime é
 
 ## Virtual Timeline
 
-ReplayTimeline recebe um dataset não nulo, captura seu range imutável e inicia CurrentTime em dataset.StartTime. Ela não retém um cursor de eventos e não enumera o dataset automaticamente. Um futuro consumer/provider deverá avançá-la explicitamente conforme os eventos históricos.
+ReplayTimeline é uma timeline virtual genérica, limitada e monotônica em Application. Desde a TASK 0.18-A, pode receber diretamente UtcInstant startTime e endTime, sem nullable na assinatura. Referências nulas em runtime causam ArgumentNullException para o respectivo parâmetro; endTime anterior a startTime causa ArgumentOutOfRangeException para endTime. Limites iguais são válidos.
+
+O construtor explícito preserva as instâncias fornecidas: StartTime = startTime, EndTime = endTime e CurrentTime = startTime. Os limites são imutáveis. A timeline não conhece ReplayEvent, kinds de Market Data, ocorrência, disponibilidade, providers ou Backtesting; não calcula seus próprios limites.
+
+O construtor existente por HistoricalReplayDataset permanece com a mesma API e comportamento. Dataset null continua causando ArgumentNullException para dataset. Ele delega à inicialização por limites explícitos com dataset.StartTime e dataset.EndTime, mantendo CurrentTime em dataset.StartTime e preservando referências. O dataset é apenas uma fonte possível dos limites.
+
+A timeline não retém cursor, enumera eventos ou controla entregas. Seu proprietário a avança explicitamente. ReplaySession permanece inalterada e continua usando o construtor por dataset para reprodução por ocorrência.
 
 AdvanceTo exige UtcInstant não nulo. O range é fechado: StartTime <= instant <= EndTime. Valores fora desse range causam ArgumentOutOfRangeException para instant. Dentro do range, instant < CurrentTime também causa ArgumentOutOfRangeException. Rejeições preservam a posição anterior.
 
-instant > CurrentTime avança a posição; instant = CurrentTime é permitido e não altera a posição. Isso permite processar várias ocorrências no mesmo timestamp. EndTime é aceito exatamente, e datasets de um único instante permitem somente aquela posição. A operação compara instantes sem calcular durações ou adicionar ticks, aceitando todo o range de UtcInstant.
+instant > CurrentTime avança a posição; instant = CurrentTime é permitido e não altera a posição. Isso permite processar várias ocorrências no mesmo timestamp. EndTime é aceito exatamente, e limites iguais permitem somente aquela posição. A operação compara instantes sem calcular durações ou adicionar ticks, aceitando todo o range de UtcInstant.
 
 A timeline possui estado por sessão e deve ser avançada serialmente pelo seu proprietário. Não há estado global, sincronização para writers concorrentes, reset, seek ou rewind. Uma nova timeline começa novamente em StartTime sem modificar timelines existentes.
+
+A TASK 0.18 revelou que o construtor exclusivamente por dataset não representava um horizonte de disponibilidade posterior a dataset.EndTime. Limites explícitos permitem uma futura execução fornecer minimum AvailabilityTime e maximum AvailabilityTime, sem alterar o dataset e sem acoplar a timeline à política. Por exemplo, um range explícito 10:03 → 10:05 aceita AdvanceTo(10:05), independentemente de um horizonte histórico de ocorrência 10:04. Esta generalização não implementa CausalReplaySession nem ordenação causal. ADR-016 registra a decisão como Proposed até revisão.
 
 ## Wall-Clock Independence
 
