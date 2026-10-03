@@ -5,8 +5,9 @@
 The Vortex Trading Terminal has one deterministic Indicator Engine in
 `VortexTrading.Application/Indicators`. Charts, Backtesting, Strategies, and
 Robots will reuse its contracts and calculations instead of maintaining separate
-frontend or execution-specific formulas. This foundation introduces the batch
-contract and Simple Moving Average only; no consumer integration is introduced.
+frontend or execution-specific formulas. This foundation provides the batch
+contract, Simple Moving Average, and Exponential Moving Average; no consumer
+integration is introduced.
 
 The engine uses the existing Domain `Candle`, `UtcInstant`, and decimal prices.
 It does not introduce another OHLCV model or change Domain, Infrastructure,
@@ -118,12 +119,27 @@ No random values, wall clock, pacing, background tasks, filesystem, network, or
 external data source participates. Returned points and series remain immutable
 after source collection changes.
 
-Each mathematical window uses only its current and preceding N-1 close prices.
+Each SMA window uses only its current and preceding N-1 close prices.
 Appending valid later candles does not change existing points. A prefix test
 compares `Calculate(C1,C2,C3)` with the first point of
 `Calculate(C1,C2,C3,C4)` for SMA(3). Whole-batch validation still rejects an invalid
 later candle, and arithmetic overflow aborts the calculation instead of returning
 partial output.
+
+## Implemented indicators
+
+- `SimpleMovingAverage`: decimal rolling SMA of Candle.Close, as described above.
+- `ExponentialMovingAverage`: decimal EMA using an SMA seed over the first N
+  Candle.Close values. Its first point is emitted at the Nth Candle.CloseTime.
+  Subsequent points use `alpha = 2m / (N + 1m)` and
+  `EMA_t = alpha * Close_t + (1m - alpha) * EMA_(t-1)`.
+
+EMA uses the same full input validation before warm-up, immutable result types,
+closed-candle responsibility boundary, and stateless batch execution. Gaps do
+not reset it. Calculation is O(n); decimal precision is finite, including alpha
+and recursive products, and overflow propagates. SMA seed is computed directly,
+without invoking the SMA implementation. See
+[ADR-019](../adr/ADR-019-exponential-moving-average.md), status `Proposed`.
 
 ## Limits and deferred work
 
@@ -131,7 +147,7 @@ The model is finite batch calculation over a coherent closed-candle sequence.
 Callers should not mutate source collections concurrently while supplying a
 batch. Future incremental stateful calculation requires its own contract review.
 
-EMA, RSI, ATR, MACD, Stochastic, Bollinger Bands, VWAP, ADX, and OBV remain deferred,
+RSI, ATR, MACD, Stochastic, Bollinger Bands, VWAP, ADX, and OBV remain deferred,
 as do indicator caching, consumer adapters, charts, Backtesting, Strategies,
 Robots, trading, signals, risk, orders, and persistence. Decimal is the decision
 for this SMA; statistical indicators may later justify double internally through
