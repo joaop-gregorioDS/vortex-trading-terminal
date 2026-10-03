@@ -6,8 +6,8 @@ The Vortex Trading Terminal has one deterministic Indicator Engine in
 `VortexTrading.Application/Indicators`. Charts, Backtesting, Strategies, and
 Robots will reuse its contracts and calculations instead of maintaining separate
 frontend or execution-specific formulas. This foundation provides the batch
-contract, Simple Moving Average, Exponential Moving Average, and Wilder Relative
-Strength Index; no consumer integration is introduced.
+contract, Simple Moving Average, Exponential Moving Average, Wilder Relative
+Strength Index, and Wilder Average True Range; no consumer integration is introduced.
 
 The engine uses the existing Domain `Candle`, `UtcInstant`, and decimal prices.
 It does not introduce another OHLCV model or change Domain, Infrastructure,
@@ -138,6 +138,12 @@ partial output.
   use the first N gains/losses, requiring N+1 supplied candles. The first point
   belongs to the (N+1)th Candle.CloseTime. Later averages use
   `(previous average * (N - 1) + current gain/loss) / N`, not EMA alpha.
+- `AverageTrueRange`: decimal Wilder ATR. The first supplied candle's TR is
+  `High - Low`; later TRs are `max(High - Low, abs(High - PreviousClose),
+  abs(Low - PreviousClose))`, using the immediately preceding supplied close.
+  Seed is the arithmetic mean of the first N TRs, requiring N candles rather
+  than RSI's N+1. The first point belongs to the Nth Candle.CloseTime. Subsequent
+  points use `(previous ATR * (N - 1) + current TR) / N`, not EMA alpha.
 
 EMA uses the same full input validation before warm-up, immutable result types,
 closed-candle responsibility boundary, and stateless batch execution. Gaps do
@@ -158,13 +164,21 @@ results, CloseTime output, gaps, and no-look-ahead boundaries. Calculation is
 O(n); arithmetic overflow propagates, including seed sums or relative strength.
 See [ADR-020](../adr/ADR-020-wilder-relative-strength-index.md), status `Proposed`.
 
+ATR captures price gaps through the previous-close distances; temporal gaps
+remain valid without resetting state or inserting candles. Period one reproduces
+each TR. Valid outputs are nonnegative without clamping. The same full validation,
+CloseTime timestamps, immutable results, stateless batch, O(n) calculation,
+decimal precision, overflow propagation, and prefix invariance apply. TR stays
+private to ATR; no shared Wilder smoother or indicator validator is introduced.
+See [ADR-021](../adr/ADR-021-wilder-average-true-range.md), status `Proposed`.
+
 ## Limits and deferred work
 
 The model is finite batch calculation over a coherent closed-candle sequence.
 Callers should not mutate source collections concurrently while supplying a
 batch. Future incremental stateful calculation requires its own contract review.
 
-ATR, MACD, Stochastic, Bollinger Bands, VWAP, ADX, and OBV remain deferred,
+MACD, Stochastic, Bollinger Bands, VWAP, ADX, and OBV remain deferred,
 as do indicator caching, consumer adapters, charts, Backtesting, Strategies,
 Robots, trading, signals, risk, orders, and persistence. Decimal is the decision
 for this SMA; statistical indicators may later justify double internally through
