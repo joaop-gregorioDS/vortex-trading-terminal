@@ -8,7 +8,7 @@ Robots will reuse its contracts and calculations instead of maintaining separate
 frontend or execution-specific formulas. This foundation provides the batch
 contract, Simple Moving Average, Exponential Moving Average, Wilder Relative
 Strength Index, Wilder Average True Range, Moving Average Convergence Divergence,
-Bollinger Bands, and Slow Stochastic Oscillator;
+Bollinger Bands, Slow Stochastic Oscillator, and Volume Weighted Average Price;
 no consumer integration is introduced.
 
 The engine uses the existing Domain `Candle`, `UtcInstant`, and decimal prices.
@@ -47,7 +47,7 @@ Later source collection changes cannot change the snapshot, including through
 casts to mutable collection interfaces. Null collections and null points are
 rejected with parameter `points`.
 
-Single-series indicators SMA, EMA, RSI, and ATR keep `IIndicator -> IndicatorSeries`.
+Single-series indicators SMA, EMA, RSI, ATR, and VWAP keep `IIndicator -> IndicatorSeries`.
 The additive, independent `IMultiSeriesIndicator` exposes `Name` and
 `MultiSeriesIndicatorResult Calculate(IReadOnlyList<Candle> candles)` without
 inheriting IIndicator. MACD, Bollinger Bands, and Stochastic Oscillator implement
@@ -307,13 +307,46 @@ O(n * (KSmoothingPeriod + DPeriod)), with O(n) memory. No shared rolling-extreme
 intermediate SMA, or statistics abstraction is introduced. See
 [ADR-025](../adr/ADR-025-slow-stochastic-oscillator.md), status `Proposed`.
 
+## Deterministic batch VWAP
+
+Sealed `VolumeWeightedAveragePrice` implements `IIndicator`, reports `Name = "VWAP"`,
+and has no period parameters. Its price input is H/L/C TypicalPrice, weighted by
+`Candle.Volume.Value`. Private decimal arithmetic preserves `(High + Low + Close) / 3m`
+whenever the left-to-right sum succeeds. Only artificial overflow in that sum
+uses the fallback `(High / 3m + Low / 3m) + Close / 3m`. Ordinary flat prices 1
+and 2 retain exactly 1 and 2 rather than the last-digit differences from split
+division. Maximum decimal prices fit via the fallback; flat MaxValue - 2 instead
+produces MaxValue - 3, the explicitly documented finite-precision limitation.
+
+For each candle, accumulate TypicalPrice * Volume, then Volume, in input order.
+With positive cumulative volume, Value is cumulative weighted price divided by
+cumulative volume. While cumulative volume is zero, emit the current TypicalPrice.
+Initial zero-volume candles receive no retroactive weight; zero volume after a
+positive prefix preserves Value and advances Time. There is no warm-up: one point
+per supplied candle, always at that candle's CloseTime, and empty input is empty.
+
+VWAP is cumulative over the whole supplied batch, including gaps of any size and
+date changes. No implicit session, daily, timezone, calendar, or gap reset exists.
+Each call starts its own local accumulators. Full snapshot validation, immutable
+results, deterministic execution, prefix invariance, and the closed-candle caller
+boundary apply. Only current and preceding candles influence each point.
+
+All calculation stays decimal, without explicit rounding, quantization, scaling,
+clamping, or floating-point conversion. Natural precision includes product
+underflow and multiply/divide round-trip effects. True weighting, weighted-sum,
+and volume-sum overflows propagate OverflowException; their failures are never
+caught for fallback. Snapshot, validation, a single cumulative arithmetic pass,
+and result snapshot are O(n) time and O(n) memory. No shared TypicalPrice helper,
+cumulative framework, or session abstraction is introduced. See
+[ADR-026](../adr/ADR-026-vwap.md), status `Proposed`.
+
 ## Limits and deferred work
 
 The model is finite batch calculation over a coherent closed-candle sequence.
 Callers should not mutate source collections concurrently while supplying a
 batch. Future incremental stateful calculation requires its own contract review.
 
-VWAP, ADX, and OBV remain deferred,
+ADX and OBV remain deferred,
 as do indicator caching, consumer adapters, charts, Backtesting, Strategies,
 Robots, trading, signals, risk, orders, and persistence. Decimal is the decision
 for this SMA; statistical indicators may later justify double internally through
