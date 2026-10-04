@@ -9,7 +9,7 @@ frontend or execution-specific formulas. This foundation provides the batch
 contract, Simple Moving Average, Exponential Moving Average, Wilder Relative
 Strength Index, Wilder Average True Range, Moving Average Convergence Divergence,
 Bollinger Bands, Slow Stochastic Oscillator, Volume Weighted Average Price,
-and Wilder Average Directional Index;
+Wilder Average Directional Index, and On-Balance Volume;
 no consumer integration is introduced.
 
 The engine uses the existing Domain `Candle`, `UtcInstant`, and decimal prices.
@@ -48,7 +48,7 @@ Later source collection changes cannot change the snapshot, including through
 casts to mutable collection interfaces. Null collections and null points are
 rejected with parameter `points`.
 
-Single-series indicators SMA, EMA, RSI, ATR, and VWAP keep `IIndicator -> IndicatorSeries`.
+Single-series indicators SMA, EMA, RSI, ATR, VWAP, and OBV keep `IIndicator -> IndicatorSeries`.
 The additive, independent `IMultiSeriesIndicator` exposes `Name` and
 `MultiSeriesIndicatorResult Calculate(IReadOnlyList<Candle> candles)` without
 inheriting IIndicator. MACD, Bollinger Bands, Stochastic Oscillator, and ADX implement
@@ -378,15 +378,42 @@ and O(n) memory. No shared Wilder smoother, TR/DM helper, validator, synthetic
 candles, or changes to RSI/ATR are introduced. See
 [ADR-027](../adr/ADR-027-wilder-adx.md), status `Proposed`.
 
+## Deterministic batch OBV
+
+Sealed, parameterless `OnBalanceVolume` implements `IIndicator` with `Name = "OBV"`.
+The first supplied candle always emits `0m`, ignoring its Volume and establishing
+only the previous Close. For every subsequent candle, compare its decimal Close
+directly with the immediately preceding supplied Close: rising adds the current
+Volume, falling subtracts it, and equal preserves the balance even for maximum
+Volume. High, Low, and Open do not participate. Zero Volume preserves balance but
+still advances the previous Close and emits a point. Signed positive, zero, and
+negative balances and fractional volumes are valid without clamping or rounding.
+
+There is no warm-up: output count equals supplied candle count, including empty
+input, and every point uses its corresponding Candle.CloseTime. Each call starts
+at zero with local state, including reuse after failure. OBV is cumulative over
+the entire supplied batch: gaps and UTC midnight do not reset, pad, or interpolate.
+There is no implicit session, calendar, daily, exchange, or timezone reset.
+
+All arithmetic remains decimal with native finite precision; a sub-unit Volume
+may be absorbed at an extreme balance. Natural positive or negative accumulation
+overflow propagates OverflowException without fallback or partial results. Full
+snapshot validation precedes mathematics. Existing coherence, strict OpenTime
+ordering, immutable input/results, closed-candle caller responsibility, exact
+determinism, and prefix invariance for successful calculations apply. Snapshot,
+validation, one forward calculation pass, and result construction take O(n) time
+and O(n) memory. No generic cumulative framework or shared validator/comparison/
+volume helper is introduced. See
+[ADR-028](../adr/ADR-028-on-balance-volume.md), status `Proposed`.
+
 ## Limits and deferred work
 
 The model is finite batch calculation over a coherent closed-candle sequence.
 Callers should not mutate source collections concurrently while supplying a
 batch. Future incremental stateful calculation requires its own contract review.
 
-OBV remains deferred,
-as do indicator caching, consumer adapters, charts, Backtesting, Strategies,
-Robots, trading, signals, risk, orders, and persistence. Decimal is the decision
+Indicator caching, consumer adapters, charts, Backtesting, Strategies,
+Robots, trading, signals, risk, orders, and persistence remain deferred. Decimal is the decision
 for this SMA; statistical indicators may later justify double internally through
 an explicit architectural decision.
 
