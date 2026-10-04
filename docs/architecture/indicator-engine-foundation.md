@@ -8,7 +8,8 @@ Robots will reuse its contracts and calculations instead of maintaining separate
 frontend or execution-specific formulas. This foundation provides the batch
 contract, Simple Moving Average, Exponential Moving Average, Wilder Relative
 Strength Index, Wilder Average True Range, Moving Average Convergence Divergence,
-Bollinger Bands, Slow Stochastic Oscillator, and Volume Weighted Average Price;
+Bollinger Bands, Slow Stochastic Oscillator, Volume Weighted Average Price,
+and Wilder Average Directional Index;
 no consumer integration is introduced.
 
 The engine uses the existing Domain `Candle`, `UtcInstant`, and decimal prices.
@@ -50,7 +51,7 @@ rejected with parameter `points`.
 Single-series indicators SMA, EMA, RSI, ATR, and VWAP keep `IIndicator -> IndicatorSeries`.
 The additive, independent `IMultiSeriesIndicator` exposes `Name` and
 `MultiSeriesIndicatorResult Calculate(IReadOnlyList<Candle> candles)` without
-inheriting IIndicator. MACD, Bollinger Bands, and Stochastic Oscillator implement
+inheriting IIndicator. MACD, Bollinger Bands, Stochastic Oscillator, and ADX implement
 this multi-series contract, as described below.
 
 `NamedIndicatorSeries` is an immutable pair of trimmed, nonblank, case-preserved
@@ -340,13 +341,50 @@ and result snapshot are O(n) time and O(n) memory. No shared TypicalPrice helper
 cumulative framework, or session abstraction is introduced. See
 [ADR-026](../adr/ADR-026-vwap.md), status `Proposed`.
 
+## Deterministic batch Wilder ADX
+
+Sealed `AverageDirectionalIndex(int period)` implements `IMultiSeriesIndicator`,
+reports `Name = "ADX"`, and exposes read-only positive Period with no default.
+Nonpositive periods throw ArgumentOutOfRangeException for `period`. Public series
+are always ordered `+DI`, `-DI`, `ADX`, including three empty series during warm-up.
+TR, directional movement, smoothed sums, and DX remain private.
+
+Beginning with the second candle, TR is the maximum of High-Low and the two
+absolute distances from PreviousClose. UpMove is High-PreviousHigh; DownMove is
+PreviousLow-Low. Only a positive move strictly greater than the opposing move
+contributes to its DM; ties discard both. The first candle contributes no TR,
+unlike ATR. Seed each smoothed TR/+DM/-DM with the first N transition sums,
+requiring N+1 candles. Later sums use `(previous - previous / N) + current`.
+DI use `(smoothed DM / smoothed TR) * 100m`; zero TR makes both DI zero.
+Private DX is `(abs(+DI - -DI) / (+DI + -DI)) * 100m`, or zero for zero denominator.
+First ADX averages the first N DX; later ADX is `(previous ADX * (N - 1m) + DX) / N`.
+
+DI start at candle N+1; ADX starts at 2N. For C candles, each DI count is
+`max(0, C-N)` and ADX count is `max(0, C-2N+1)`, derived in stages without integer
+period overflow. For N=14, starts are candles 15 and 28. For N=1, both start at
+candle 2 and ADX equals DX. Independent warm-up lengths are not padded or aligned
+artificially. Every point uses its corresponding Candle.CloseTime; ADX index j
+aligns with DI index j+N-1.
+
+Full snapshot validation precedes warm-up and mathematics. All computation is
+decimal, without rounding, clamp, floating-point conversion, or overflow fallback.
+DI/DX divide before multiplying by 100. Range expectations are 0..100; sum seeds
+retain minimum-positive decimals that prematurely averaged seeds would lose.
+Natural overflow propagates, including smoothed TR seed and recurrence sums.
+Gaps do not reset smoothing. Private local accumulators, immutable results,
+determinism, and prefix invariance apply to all three public series. Snapshot,
+validation, one forward calculation pass, and result construction take O(n) time
+and O(n) memory. No shared Wilder smoother, TR/DM helper, validator, synthetic
+candles, or changes to RSI/ATR are introduced. See
+[ADR-027](../adr/ADR-027-wilder-adx.md), status `Proposed`.
+
 ## Limits and deferred work
 
 The model is finite batch calculation over a coherent closed-candle sequence.
 Callers should not mutate source collections concurrently while supplying a
 batch. Future incremental stateful calculation requires its own contract review.
 
-ADX and OBV remain deferred,
+OBV remains deferred,
 as do indicator caching, consumer adapters, charts, Backtesting, Strategies,
 Robots, trading, signals, risk, orders, and persistence. Decimal is the decision
 for this SMA; statistical indicators may later justify double internally through
