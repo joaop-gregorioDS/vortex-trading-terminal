@@ -375,6 +375,74 @@ public sealed class SimpleMovingAverageTests
     }
 
     [Fact]
+    public void AuditMagnitudeSequenceRecoversTheDirectMeanOfEveryCurrentWindow()
+    {
+        var candles = Candles(1e14m, 1e-16m, 1e-16m, 1e-17m, 1e-17m);
+
+        var result = new SimpleMovingAverage(2).Calculate(candles);
+
+        Assert.Equal(new[] { 5e13m, 1e-16m, 5.5e-17m, 1e-17m },
+            result.Points.Select(point => point.Value).ToArray());
+        Assert.All(result.Points, point => Assert.True(point.Value > 0m));
+        for (var index = 0; index < result.Count; index++)
+            Assert.Equal(candles[index + 1].CloseTime, result.Points[index].Time);
+    }
+
+    [Fact]
+    public void FinalAuditWindowEqualsItsIsolatedCalculationRatherThanRetainingEarlierPrecisionLoss()
+    {
+        var candles = Candles(1e14m, 1e-16m, 1e-16m, 1e-17m, 1e-17m);
+        var full = new SimpleMovingAverage(2).Calculate(candles);
+        var isolated = new SimpleMovingAverage(2).Calculate(candles.TakeLast(2).ToArray());
+
+        Assert.Equal(1e-17m, full.Points[^1].Value);
+        Assert.Equal(1e-17m, Assert.Single(isolated.Points).Value);
+        Assert.Equal(isolated.Points[0], full.Points[^1]);
+    }
+
+    public static TheoryData<int, decimal[], decimal[]> OutlierExitCases => new()
+    {
+        { 2, [1e27m, 0.125m, 0.375m, 0.625m, 0.875m, 1.125m, 1.375m],
+            [0.25m, 0.5m, 0.75m, 1m, 1.25m] },
+        { 4, [1e24m, 1e-8m, 2e-8m, 4e-8m, 8e-8m, 16e-8m, 32e-8m, 64e-8m],
+            [3.75e-8m, 7.5e-8m, 15e-8m, 30e-8m] }
+    };
+
+    [Theory]
+    [MemberData(nameof(OutlierExitCases))]
+    public void OutlierExitLeavesOnlyCurrentWindowValuesAndPositiveMeans(
+        int period, decimal[] closes, decimal[] expectedAfterExit)
+    {
+        var candles = Candles(closes);
+        var full = new SimpleMovingAverage(period).Calculate(candles);
+
+        Assert.Equal(expectedAfterExit, full.Points.Skip(1).Select(point => point.Value).ToArray());
+        Assert.All(full.Points, point => Assert.True(point.Value > 0m));
+        for (var index = 0; index < full.Count; index++)
+        {
+            var window = candles.Skip(index).Take(period).ToArray();
+            var isolated = new SimpleMovingAverage(period).Calculate(window);
+            Assert.Equal(Assert.Single(isolated.Points), full.Points[index]);
+        }
+    }
+
+    [Fact]
+    public void CurrentWindowAccumulatesFromOldestToNewestWithoutReorderingByMagnitude()
+    {
+        const decimal large = 1e27m;
+        var candles = Candles(large, 0.04m, 0.04m, large);
+        var expectedLastMean = (0.04m + 0.04m + large) / 3m;
+        var reorderedMean = (large + 0.04m + 0.04m) / 3m;
+        Assert.NotEqual(reorderedMean, expectedLastMean);
+
+        var result = new SimpleMovingAverage(3).Calculate(candles);
+
+        Assert.Equal(reorderedMean, result.Points[0].Value);
+        Assert.Equal(expectedLastMean, result.Points[1].Value);
+        Assert.Equal(candles[3].CloseTime, result.Points[1].Time);
+    }
+
+    [Fact]
     public void SupportsAdjacentTicksAndCloseAtMaximumRepresentableTime()
     {
         var interval = new CandleInterval(TimeSpan.FromTicks(1));

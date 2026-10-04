@@ -643,6 +643,50 @@ public sealed class BollingerBandsTests
         Assert.All(result.Series, item => Assert.Equal(new UtcInstant(DateTimeOffset.MaxValue), Assert.Single(item.Series.Points).Time));
     }
 
+    [Fact]
+    public void AuditMagnitudeWindowsUseIndependentMiddleValuesAndPreserveSquaredDeviationUnderflow()
+    {
+        var candles = Candles(1e14m, 1e-16m, 1e-16m, 1e-17m, 1e-17m);
+
+        var result = new BollingerBands(2, 2m).Calculate(candles);
+
+        AssertValues(result.Series[0].Series, 5e13m, 1e-16m, 5.5e-17m, 1e-17m);
+        AssertValues(result.Series[1].Series, 15e13m, 1e-16m, 5.5e-17m, 1e-17m);
+        AssertValues(result.Series[2].Series, -5e13m, 1e-16m, 5.5e-17m, 1e-17m);
+        // Tiny squared deviations may still underflow; their correctly centered bands collapse.
+        for (var index = 0; index < result.Series[0].Series.Count; index++)
+            Assert.All(result.Series, item => Assert.Equal(candles[index + 1].CloseTime, item.Series.Points[index].Time));
+
+        var isolated = new BollingerBands(2, 2m).Calculate(candles.TakeLast(2).ToArray());
+        for (var component = 0; component < 3; component++)
+        {
+            Assert.Equal(1e-17m, Assert.Single(isolated.Series[component].Series.Points).Value);
+            Assert.Equal(isolated.Series[component].Series.Points[0], result.Series[component].Series.Points[^1]);
+        }
+        AssertOrdered(result);
+    }
+
+    [Fact]
+    public void AllBandsMatchIsolatedWindowsAfterOutlierExitIncludingNonzeroPopulationVariance()
+    {
+        var candles = Candles(1e14m, 1e-16m, 1e-16m, 1e-16m, 2m, 4m, 2m, 4m);
+        var full = new BollingerBands(4, 2m).Calculate(candles);
+
+        for (var index = 1; index < full.Series[0].Series.Count; index++)
+        {
+            var isolated = new BollingerBands(4, 2m).Calculate(candles.Skip(index).Take(4).ToArray());
+            for (var component = 0; component < 3; component++)
+                Assert.Equal(Assert.Single(isolated.Series[component].Series.Points), full.Series[component].Series.Points[index]);
+        }
+
+        // Final window 2, 4, 2, 4 has independent mean 3 and population variance 1.
+        Assert.Equal(3m, full.Series[0].Series.Points[^1].Value);
+        Assert.Equal(5m, full.Series[1].Series.Points[^1].Value);
+        Assert.Equal(1m, full.Series[2].Series.Points[^1].Value);
+        Assert.All(full.Series, item => Assert.Equal(candles[^1].CloseTime, item.Series.Points[^1].Time));
+        AssertOrdered(full);
+    }
+
     private static void AssertOrdered(MultiSeriesIndicatorResult result)
     {
         for (var index = 0; index < result.Series[0].Series.Count; index++)

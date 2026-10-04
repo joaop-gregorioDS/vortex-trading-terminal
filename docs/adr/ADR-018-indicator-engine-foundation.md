@@ -75,7 +75,7 @@ Overflow in an actual window propagates instead of producing a fallback value.
 This choice does not require future statistical indicators to use decimal
 internally; double-based computation may be justified in a later decision.
 
-## Validation and rolling algorithm
+## Validation and current-window algorithm
 
 Snapshot the input candle references locally without cloning or modifying them.
 Validate the whole batch before warm-up handling and calculation:
@@ -88,12 +88,16 @@ Validate the whole batch before warm-up handling and calculation:
 - Coherence uses existing instrument and interval value equality.
 - Gaps are accepted; missing-bar detection and additional overlap rules are absent.
 
-Use a local rolling decimal sum. Remove the outgoing close before adding the
-incoming close so a transient N+1 window cannot cause unnecessary overflow.
-Emit sum/N at each completed window's final CloseTime. Actual arithmetic overflow
-is not caught. Snapshot, validation, rolling computation, and output construction
-are O(n), with O(n) batch storage. No global cache or persistent indicator state
-is introduced.
+Recompute a local decimal sum from zero for each complete current window, adding
+its closes in supplied order from oldest to newest. No sum is carried between
+windows: precision lost while a larger value was present cannot contaminate
+later windows after that value leaves. Emit sum/N at the window's final CloseTime.
+Finite decimal rounding within the current window remains possible, and actual
+sum overflow is not caught. Calculation is O(C * Period), where C is the supplied
+candle count, explicitly accepted for numerical window isolation, with O(C)
+input snapshot and result storage.
+Snapshot and validation remain linear. No global cache or persistent indicator
+state is introduced.
 
 ## Determinism
 
@@ -111,7 +115,9 @@ returned each time, and reuse across different batches retains no window state.
   own causal selection while indicators own mathematics.
 - Silent sorting, grouping, or deduplication: rejected because they conceal
   incoherent input and alter the supplied series.
-- O(n times period) window recomputation: rejected in favor of linear rolling sums.
+- Linear rolling sums: rejected because previously absorbed small contributions
+  cannot be reconstructed by subtracting an outgoing larger value. Direct current-
+  window recomputation accepts O(C * Period) to avoid that historical contamination.
 - Double SMA or overflow fallback: rejected because decimal input requires no
   conversion and overflow must remain observable.
 - Incremental mutable state and caching: deferred until the batch contract is

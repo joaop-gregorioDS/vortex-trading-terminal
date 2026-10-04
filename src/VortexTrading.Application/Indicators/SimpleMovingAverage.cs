@@ -26,16 +26,16 @@ public sealed class SimpleMovingAverage : IIndicator
         if (snapshot.Length < Period) return new IndicatorSeries([]);
 
         var points = new List<IndicatorPoint>(snapshot.Length - Period + 1);
-        decimal sum = 0;
-        for (var index = 0; index < snapshot.Length; index++)
+        for (var index = Period - 1; index < snapshot.Length; index++)
         {
-            // Remove the outgoing close first, avoiding a transient period + 1 sum.
-            if (index >= Period) sum -= snapshot[index - Period].Close.Value;
-            sum += snapshot[index].Close.Value;
-            if (index >= Period - 1)
+            // Recompute each window so discarded closes leave no historical rounding residue.
+            decimal sum = 0m;
+            for (var windowIndex = index - Period + 1; windowIndex <= index; windowIndex++)
             {
-                points.Add(new IndicatorPoint(snapshot[index].CloseTime, sum / Period));
+                sum += snapshot[windowIndex].Close.Value;
             }
+
+            points.Add(new IndicatorPoint(snapshot[index].CloseTime, sum / Period));
         }
 
         return new IndicatorSeries(points);

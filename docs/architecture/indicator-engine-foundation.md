@@ -67,7 +67,7 @@ using ordinal comparison, or false/null when absent. Lookup is a simple O(k) sca
 over k named series. Counts and timestamps may differ between component series;
 there is no cross-series alignment, padding, metadata, point sorting, or point
 deduplication. IndicatorSeries retains responsibility for point immutability.
-See [ADR-022](../adr/ADR-022-multi-series-indicator-results.md), status `Proposed`.
+See [ADR-022](../adr/ADR-022-multi-series-indicator-results.md), status `Accepted`.
 
 ## Deterministic batch SMA
 
@@ -118,23 +118,27 @@ require contiguity, or add an overlap constraint beyond strictly increasing
 OpenTime. All intervals in one calculation must be equal, so their close times
 also remain strictly increasing.
 
-## Decimal arithmetic and rolling complexity
+## Decimal arithmetic and current-window complexity
 
 SMA uses decimal throughout, with the precision and range of .NET decimal.
 There is no double conversion, explicit rounding, price quantization, or fallback.
 Nonterminating averages use the decimal division result. Finite precision can
 round intermediate sums and divisions; this is not arbitrary-precision arithmetic.
 
-The rolling sum removes the outgoing close before adding the next close. This
-keeps the sum within the current N-candle window and avoids an unnecessary
-transient N+1-candle overflow. Overflow in the actual sum propagates as
-`OverflowException`, even if the mathematical mean would fit. Valid Domain
-candles with maximum decimal prices exercise this behavior without Domain changes.
+For each complete window, start a fresh sum at 0m and add only its closes in
+supplied order from oldest to newest. No rolling sum is carried between windows.
+This prevents precision loss caused by a larger value from contaminating later
+windows after that value has left. Each mean depends numerically only on its
+current window; operand order is not rearranged by magnitude.
+Overflow in the direct window sum propagates as `OverflowException`, even if
+the mathematical mean would fit. Valid Domain candles with maximum decimal
+prices exercise this behavior without Domain changes.
 
-Snapshot, validation, and rolling calculation are O(n); each candle requires at
-most one addition and one subtraction. Result snapshot construction is also
-linear. Memory is O(n) for the input reference snapshot and output; it is not an
-incremental constant-memory execution API.
+Calculation takes O(C * Period) time, where C is the supplied candle count.
+This trade-off is accepted for correctness and numerical window isolation.
+Snapshot, validation, and result construction remain linear. Result memory and
+working memory are O(C), including the existing input reference snapshot; this
+is not an incremental constant-memory execution API.
 
 ## Determinism, immutability, and no look-ahead
 
@@ -152,7 +156,7 @@ partial output.
 
 ## Implemented indicators
 
-- `SimpleMovingAverage`: decimal rolling SMA of Candle.Close, as described above.
+- `SimpleMovingAverage`: decimal SMA of Candle.Close with direct per-window accumulation.
 - `ExponentialMovingAverage`: decimal EMA using an SMA seed over the first N
   Candle.Close values. Its first point is emitted at the Nth Candle.CloseTime.
   Subsequent points use `alpha = 2m / (N + 1m)` and
@@ -174,7 +178,7 @@ closed-candle responsibility boundary, and stateless batch execution. Gaps do
 not reset it. Calculation is O(n); decimal precision is finite, including alpha
 and recursive products, and overflow propagates. SMA seed is computed directly,
 without invoking the SMA implementation. See
-[ADR-019](../adr/ADR-019-exponential-moving-average.md), status `Proposed`.
+[ADR-019](../adr/ADR-019-exponential-moving-average.md), status `Accepted`.
 
 RSI computes `RS = AverageGain / AverageLoss` and `100 - 100 / (1 + RS)`.
 Zero loss with positive gain produces 100; zero gain with positive loss produces
@@ -186,7 +190,7 @@ series after full validation. Period one uses the current change and produces
 RSI preserves the same validation, stateless batch, decimal precision, immutable
 results, CloseTime output, gaps, and no-look-ahead boundaries. Calculation is
 O(n); arithmetic overflow propagates, including seed sums or relative strength.
-See [ADR-020](../adr/ADR-020-wilder-relative-strength-index.md), status `Proposed`.
+See [ADR-020](../adr/ADR-020-wilder-relative-strength-index.md), status `Accepted`.
 
 ATR captures price gaps through the previous-close distances; temporal gaps
 remain valid without resetting state or inserting candles. Period one reproduces
@@ -194,7 +198,7 @@ each TR. Valid outputs are nonnegative without clamping. The same full validatio
 CloseTime timestamps, immutable results, stateless batch, O(n) calculation,
 decimal precision, overflow propagation, and prefix invariance apply. TR stays
 private to ATR; no shared Wilder smoother or indicator validator is introduced.
-See [ADR-021](../adr/ADR-021-wilder-average-true-range.md), status `Proposed`.
+See [ADR-021](../adr/ADR-021-wilder-average-true-range.md), status `Accepted`.
 
 ## Deterministic batch MACD
 
@@ -227,14 +231,14 @@ stateless batch, and closed-candle responsibility boundaries apply. Decimal-only
 calculation is O(n), with O(n) memory. No rounding, clamping, or overflow fallback
 is introduced; arithmetic overflow aborts the call. Valid extension preserves all
 previous points in every component, subject to whole-batch validation and overflow.
-See [ADR-023](../adr/ADR-023-moving-average-convergence-divergence.md), status `Proposed`.
+See [ADR-023](../adr/ADR-023-moving-average-convergence-divergence.md), status `Accepted`.
 
 ## Deterministic batch Bollinger Bands
 
 `BollingerBands(period, standardDeviationMultiplier)` implements `IMultiSeriesIndicator`
 with `Name = "Bollinger Bands"`. Period and decimal multiplier K must be positive;
 otherwise throw `ArgumentOutOfRangeException` for their respective parameter.
-The unchanged `SimpleMovingAverage(Period)` supplies Middle exactly. For each window,
+The canonical `SimpleMovingAverage(Period)` supplies Middle exactly. For each window,
 population variance is `sum((Close - Middle)^2) / Period`, using direct deviations
 rather than `E[x^2] - E[x]^2`. Upper/Lower are `Middle +/- K * sqrt(variance)`.
 All three series are ordered `Middle`, `Upper`, `Lower` and synchronized in count
@@ -262,9 +266,10 @@ clamping, or negative-variance repair. Natural overflow propagates; subminimum s
 deviations may underflow under decimal semantics. Full input validation precedes
 warm-up and arithmetic. Gaps do not reset windows; results are immutable and batches
 stateless, deterministic, and prefix invariant when calculation succeeds. Direct
-variance takes O(n * Period) time; bounded Newton and O(n) snapshots require no shared
+SMA and variance each take O(C * Period) time; the overall bound stays O(C * Period).
+Bounded Newton and O(C) snapshots require no shared
 math library or statistics framework. See
-[ADR-024](../adr/ADR-024-bollinger-bands.md), status `Proposed`.
+[ADR-024](../adr/ADR-024-bollinger-bands.md), status `Accepted`.
 
 ## Deterministic batch Slow Stochastic Oscillator
 
@@ -295,8 +300,8 @@ Candle.CloseTime; D index j aligns with K index j + DPeriod - 1.
 
 Raw normalization divides before multiplying by 100 to avoid unnecessary overflow.
 All arithmetic is decimal, without rounding, clamping, or floating-point conversion.
-Private direct window means avoid outgoing-sum drift and synthetic candles; existing
-SMA and public contracts stay unchanged. Valid outputs remain 0..100, and natural
+Private direct window means avoid outgoing-sum drift and synthetic candles.
+Public contracts stay unchanged. Valid outputs remain 0..100, and natural
 OverflowException propagates. Positive Candle OHLC invariants prevent a valid
 range-subtraction overflow fixture; intermediate bounded sums also fit decimal.
 
@@ -306,7 +311,7 @@ batch, determinism, closed-candle responsibility, and prefix invariance apply.
 Direct extreme search is O(n * KPeriod); direct intermediate means add
 O(n * (KSmoothingPeriod + DPeriod)), with O(n) memory. No shared rolling-extreme,
 intermediate SMA, or statistics abstraction is introduced. See
-[ADR-025](../adr/ADR-025-slow-stochastic-oscillator.md), status `Proposed`.
+[ADR-025](../adr/ADR-025-slow-stochastic-oscillator.md), status `Accepted`.
 
 ## Deterministic batch VWAP
 
@@ -339,7 +344,7 @@ and volume-sum overflows propagate OverflowException; their failures are never
 caught for fallback. Snapshot, validation, a single cumulative arithmetic pass,
 and result snapshot are O(n) time and O(n) memory. No shared TypicalPrice helper,
 cumulative framework, or session abstraction is introduced. See
-[ADR-026](../adr/ADR-026-vwap.md), status `Proposed`.
+[ADR-026](../adr/ADR-026-vwap.md), status `Accepted`.
 
 ## Deterministic batch Wilder ADX
 
@@ -376,7 +381,7 @@ determinism, and prefix invariance apply to all three public series. Snapshot,
 validation, one forward calculation pass, and result construction take O(n) time
 and O(n) memory. No shared Wilder smoother, TR/DM helper, validator, synthetic
 candles, or changes to RSI/ATR are introduced. See
-[ADR-027](../adr/ADR-027-wilder-adx.md), status `Proposed`.
+[ADR-027](../adr/ADR-027-wilder-adx.md), status `Accepted`.
 
 ## Deterministic batch OBV
 
@@ -404,7 +409,7 @@ determinism, and prefix invariance for successful calculations apply. Snapshot,
 validation, one forward calculation pass, and result construction take O(n) time
 and O(n) memory. No generic cumulative framework or shared validator/comparison/
 volume helper is introduced. See
-[ADR-028](../adr/ADR-028-on-balance-volume.md), status `Proposed`.
+[ADR-028](../adr/ADR-028-on-balance-volume.md), status `Accepted`.
 
 ## Limits and deferred work
 
@@ -417,5 +422,5 @@ Robots, trading, signals, risk, orders, and persistence remain deferred. Decimal
 for this SMA; statistical indicators may later justify double internally through
 an explicit architectural decision.
 
-See [ADR-018](../adr/ADR-018-indicator-engine-foundation.md), status `Proposed`,
-for the architectural decision pending review.
+See [ADR-018](../adr/ADR-018-indicator-engine-foundation.md), status `Accepted`,
+for the approved architectural decision.

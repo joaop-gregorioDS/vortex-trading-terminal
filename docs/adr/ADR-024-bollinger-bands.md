@@ -25,8 +25,9 @@ accepted without allocating by period when the batch is too short.
 ## Middle and population variance
 
 Take a local snapshot of Candle references and validate the full sequence. Reuse
-the unchanged SimpleMovingAverage(Period) over that snapshot for Middle. Its
-rolling sum, finite decimal expression order, Count, Time, and Value are canonical,
+the canonical SimpleMovingAverage(Period) over that snapshot for Middle. Its
+direct current-window sum in oldest-to-newest order, Count, Time, and Value
+are canonical,
 so Middle exactly matches the approved SMA rather than an alternative mean routine.
 Each output at index j corresponds to supplied candles j through j + Period - 1.
 
@@ -200,8 +201,8 @@ Each point uses only its current window. Multiple-prefix tests compare Middle,
 Upper, and Lower, including a future price shock. Whole-batch validation, overflow,
 or non-convergence aborts the call instead of yielding partial output.
 
-Snapshot, validation, and SMA are O(n). Direct variance costs O(n * Period) and
-Newton costs at most 128 updates per output, so the accepted bound is O(n * Period)
+Snapshot and validation are O(n). SMA and direct variance each cost O(n * Period),
+and Newton costs at most 128 updates per output, so the accepted bound is O(n * Period)
 with fixed iteration limit. Memory is O(n) for snapshots and results; the private
 Newton calculation and individual variance accumulation use local scalar state.
 No I/O, caches, randomness, clock, retained windows, or statistics framework.
