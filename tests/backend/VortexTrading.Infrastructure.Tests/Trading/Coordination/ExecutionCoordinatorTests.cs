@@ -20,6 +20,27 @@ public sealed class ExecutionCoordinatorTests
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
     [Fact]
+    public async Task OwnedOrdersAreReadableInSubmissionOrder()
+    {
+        using var provider = new PaperExecutionProvider(Instrument);
+        var coordinator = new ExecutionCoordinator(Instrument, provider, new FixedClock(Start), provider.Reports);
+        var first = Limit(1m, 50m);
+        var second = Market(1m);
+
+        await coordinator.SubmitOrderAsync(first, Start, Token);
+        await coordinator.SubmitOrderAsync(second, Start, Token);
+
+        // The workflow exposes no order accessor by design, so the scope keeps them for its callers.
+        Assert.True(coordinator.TryGetOrder(first.Id, out var resolved));
+        Assert.Same(first, resolved);
+        Assert.Equal(new[] { first.Id, second.Id }, coordinator.Orders.Select(order => order.Id));
+
+        Assert.True(coordinator.TryGet(first.Id, out var workflow));
+        Assert.NotNull(workflow);
+        Assert.False(coordinator.TryGetOrder(OrderId.From(Guid.NewGuid()), out _));
+    }
+
+    [Fact]
     public async Task SubmittingAnOrderAppliesItsFactsBeforeTheCommandReturns()
     {
         using var provider = new PaperExecutionProvider(Instrument);

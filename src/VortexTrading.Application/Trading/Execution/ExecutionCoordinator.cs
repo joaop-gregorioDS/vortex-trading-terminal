@@ -26,6 +26,7 @@ namespace VortexTrading.Application.Trading.Execution;
 public sealed class ExecutionCoordinator
 {
     private readonly Dictionary<OrderId, OrderExecutionWorkflow> _workflows = [];
+    private readonly Dictionary<OrderId, Order> _orders = [];
     private readonly HashSet<OrderId> _submitted = [];
     private readonly InstrumentId _instrumentId;
     private readonly IExecutionProvider _provider;
@@ -59,6 +60,36 @@ public sealed class ExecutionCoordinator
         return _submitted.Contains(orderId);
     }
 
+    /// <summary>Resolves the workflow that owns an order, when this scope owns it.</summary>
+    /// <remarks>
+    /// Read-only lookup for callers that need the order's current state. It never creates a workflow,
+    /// so it cannot be used to acquire ownership by accident.
+    /// </remarks>
+    public bool TryGet(OrderId? orderId, out OrderExecutionWorkflow? workflow)
+    {
+        ArgumentNullException.ThrowIfNull(orderId);
+        var found = _workflows.TryGetValue(orderId, out var resolved);
+        workflow = resolved;
+        return found;
+    }
+
+    /// <summary>Resolves an order owned by this scope, when present.</summary>
+    /// <remarks>
+    /// The scope keeps the orders it owns because the workflow deliberately exposes no accessor for
+    /// them (ADR-034). Returning the live instance is safe only under the serial ownership rule this
+    /// class already requires; callers must not mutate it.
+    /// </remarks>
+    public bool TryGetOrder(OrderId? orderId, out Order? order)
+    {
+        ArgumentNullException.ThrowIfNull(orderId);
+        var found = _orders.TryGetValue(orderId, out var resolved);
+        order = resolved;
+        return found;
+    }
+
+    /// <summary>Orders owned by this scope, in the order they were submitted.</summary>
+    public IReadOnlyList<Order> Orders => _orders.Values.ToArray();
+
     /// <summary>Submits one created order and applies any fact the provider publishes immediately.</summary>
     public async Task SubmitOrderAsync(Order? order, UtcInstant? submittedAt = null,
         CancellationToken cancellationToken = default)
@@ -88,6 +119,7 @@ public sealed class ExecutionCoordinator
         // Register before submitting: the provider may publish a fact during the command, and routing
         // must already know the owner.
         _workflows.Add(order.Id, workflow);
+        _orders.Add(order.Id, order);
         _submitted.Add(order.Id);
 
         try
@@ -99,6 +131,7 @@ public sealed class ExecutionCoordinator
         {
             // Never leave a half-owned order behind; the caller decides what to do with the order.
             _workflows.Remove(order.Id);
+            _orders.Remove(order.Id);
             throw;
         }
     }
