@@ -1,0 +1,149 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  NODE_VERSION: 24.x
+  # The API refuses to start without this key. CI never touches a real database; the
+  # value only has to be a syntactically valid PostgreSQL connection string.
+  ConnectionStrings__PostgreSQL: "Host=127.0.0.1;Port=5432;Database=vortex_trading;Username=vortex_trading;Password=ci-placeholder"
+
+jobs:
+  backend:
+    name: Backend (.NET)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # global.json pins SDK 10.0.401 with rollForward latestPatch. Do not pin a
+      # different feature band here; previews stay disabled.
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Restore
+        run: dotnet restore VortexTrading.slnx
+
+      - name: Build
+        run: dotnet build VortexTrading.slnx --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test VortexTrading.slnx --no-restore --no-build --configuration Release
+
+  frontend:
+    name: Frontend (Next.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Chart adapter checks
+        run: node --experimental-strip-types --test tests/charts-adapter.test.mjs
+
+      # The page fetches the API at request time behind connection(); the build must
+      # never require a running backend.
+      - name: Build
+        run: npm run build
+
+  repository-guards:
+    name: Repository guards
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # Stop documentation drift. The README advertises the current stage and which ADRs
+      # back it, so every ADR named there must exist and must actually be Accepted.
+      # We deliberately do NOT infer the stage from the highest ADR number: ADR numbering
+      # does not track task numbering (TASK 0.5 produced ADR-003, for example), so that
+      # inference is invalid.
+      - name: README stage and its ADRs are consistent
+        run: |
+          set -euo pipefail
+
+          if ! grep -q 'ESTAGIO-ATUAL: TASK [0-9]\+\.[0-9]\+' README.md; then
+            echo "::error file=README.md::Missing 'ESTAGIO-ATUAL: TASK x.y' marker."
+            exit 1
+          fi
+          echo "Stage marker present."
+
+          # Only the current-stage section is an acceptance claim.
+          section="$(sed -n '/^## Estágio atual/,/^## /p' README.md)"
+          if [ -z "$section" ]; then
+            echo "::error file=README.md::Missing '## Estágio atual' section."
+            exit 1
+          fi
+
+          adrs="$(printf '%s' "$section" | grep -o 'ADR-[0-9]\+' | sort -u || true)"
+          if [ -z "$adrs" ]; then
+            echo "::error file=README.md::Current stage section cites no ADR."
+            exit 1
+          fi
+
+          failed=0
+          for adr in $adrs; do
+            number="$(printf '%s' "$adr" | grep -o '[0-9]\+')"
+            file="$(ls docs/adr/ | grep "^${adr}-" || true)"
+            if [ -z "$file" ]; then
+              echo "::error file=README.md::README cites $adr but no such ADR file exists."
+              failed=1
+              continue
+            fi
+            status="$(grep -m1 '^- Status:' "docs/adr/$file" | sed 's/^- Status:[[:space:]]*//' || true)"
+            echo "  $adr ($file) -> '$status'"
+            if [ "$status" != "Accepted" ]; then
+              echo "::error file=docs/adr/$file::README cites $adr as accepted, but its status is '$status'."
+              failed=1
+            fi
+          done
+
+          if [ "$failed" -ne 0 ]; then
+            exit 1
+          fi
+          echo "README stage and ADR statuses agree."
+
+      - name: No secrets or environment files tracked
+        run: |
+          set -euo pipefail
+          tracked="$(git ls-files | grep -E '(^|/)\.env$|(^|/)\.env\.' | grep -v '\.env\.example$' || true)"
+          if [ -n "$tracked" ]; then
+            echo "::error::Environment files must not be tracked: $tracked"
+            exit 1
+          fi
+          echo "No environment files tracked."
