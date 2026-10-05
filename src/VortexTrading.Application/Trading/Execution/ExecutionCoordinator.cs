@@ -32,9 +32,10 @@ public sealed class ExecutionCoordinator
     private readonly IExecutionProvider _provider;
     private readonly IApplicationClock _clock;
     private readonly ChannelReader<ExecutionReport> _reports;
+    private readonly IOrderStore? _store;
 
     public ExecutionCoordinator(InstrumentId? instrumentId, IExecutionProvider? provider,
-        IApplicationClock? clock, ChannelReader<ExecutionReport>? reports)
+        IApplicationClock? clock, ChannelReader<ExecutionReport>? reports, IOrderStore? store = null)
     {
         ArgumentNullException.ThrowIfNull(instrumentId);
         ArgumentNullException.ThrowIfNull(provider);
@@ -45,6 +46,7 @@ public sealed class ExecutionCoordinator
         _provider = provider;
         _clock = clock;
         _reports = reports;
+        _store = store;
     }
 
     /// <summary>Instrument owned by this scope. One scope owns exactly one instrument.</summary>
@@ -126,6 +128,7 @@ public sealed class ExecutionCoordinator
         {
             await workflow.SubmitOrderAsync(at, cancellationToken).ConfigureAwait(false);
             DrainReports(at);
+            await PersistAsync(cancellationToken).ConfigureAwait(false);
         }
         catch
         {
@@ -147,6 +150,7 @@ public sealed class ExecutionCoordinator
         DrainReports(at);
         await workflow.RequestCancellationAsync(at, cancellationToken).ConfigureAwait(false);
         DrainReports(at);
+        await PersistAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Publishes a market observation and applies every fact it produces.</summary>
@@ -174,7 +178,47 @@ public sealed class ExecutionCoordinator
                 "The execution provider of this scope cannot consume market observations.");
         }
 
-        DrainReports(observation.EventTime);
+        var applied = DrainReports(observation.EventTime);
+
+        // Persist only when the observation actually changed something. Observations arrive on a timer
+        // and most ticks fill nothing, so an unconditional save would rewrite the whole book every tick.
+        if (applied > 0)
+        {
+            PersistAsync(CancellationToken.None).GetAwaiter().GetResult();
+        }
+    }
+
+    /// <summary>Registers an order that was loaded from durable storage, without resubmitting it.</summary>
+    /// <remarks>
+    /// Used on startup so the scope owns what it previously persisted and its positions can be derived.
+    /// <para>
+    /// Only an order still in <see cref="OrderStatus.Created"/> gets a workflow, because the workflow
+    /// constructor requires exactly that state and fabricating command history for a partially filled
+    /// order would assert attempts that never happened. A restored live order therefore appears in the
+    /// book and in position calculations but cannot be commanded until a decision is made about how to
+    /// recover an in-flight execution. That gap is deliberate and must not be papered over.
+    /// </para>
+    /// </remarks>
+    public void Restore(Order? order)
+    {
+        ArgumentNullException.ThrowIfNull(order);
+
+        if (order.InstrumentId != _instrumentId)
+        {
+            throw new InvalidOperationException("Order targets a different instrument than this scope.");
+        }
+
+        if (!_orders.TryAdd(order.Id, order))
+        {
+            return;
+        }
+
+        if (order.Status == OrderStatus.Created)
+        {
+            _ = _workflows.TryAdd(order.Id, new OrderExecutionWorkflow(order, _provider));
+        }
+
+        _submitted.Add(order.Id);
     }
 
     /// <summary>Applies every buffered fact at the supplied application time.</summary>
@@ -213,4 +257,14 @@ public sealed class ExecutionCoordinator
             ? workflow
             : throw new InvalidOperationException("Order is not owned by this execution scope.");
     }
+
+    /// <summary>Writes the owned orders to durable storage, when one is configured.</summary>
+    /// <remarks>
+    /// Every order is saved, not only the one that just changed, because the store contract is a
+    /// wholesale save and the aggregate carries its fills as part of itself.
+    /// </remarks>
+    private Task PersistAsync(CancellationToken cancellationToken) =>
+        _store is null || _orders.Count == 0
+            ? Task.CompletedTask
+            : _store.SaveAsync(_orders.Values.ToArray(), cancellationToken);
 }

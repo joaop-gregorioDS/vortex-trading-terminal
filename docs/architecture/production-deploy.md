@@ -5,10 +5,14 @@ Artefatos para hospedar o Vortex Trading Terminal na VPS da Vortex Software
 
 ## Estado real deste deploy
 
-O app funciona de ponta a ponta, e **não é durável**: a sessão simulada vive em memória, então
-reiniciar o container da API perde ordens, fills e posições. A persistência PostgreSQL existe para o
-agregado `Order` (ADR-035), mas a sessão ainda não grava nem lê o banco. Isso está registrado como
-consequência no ADR-039 e é a pendência mais valiosa do projeto.
+O app funciona de ponta a ponta e **é durável para ordens e posições**: ordens e fills são gravados em
+PostgreSQL a cada mutação e restaurados na primeira leitura após um restart (ADR-040). Verificado por
+HTTP: encerrar o processo e subir de novo devolve a mesma ordem, com o mesmo status e os mesmos fills,
+e a mesma posição, com quantidade, custo e média idênticos.
+
+O que **não** é durável: uma ordem que estava viva no momento da queda volta sem poder ser comandada,
+porque recuperar execução em voo exige reconciliação e é decisão pendente. `cash` também é uma
+constante de sessão, não um saldo contábil.
 
 O feed de mercado é **simulado e finito**: ele publica preços do gerador determinístico e para quando
 a série termina. Não há dado real, fornecedor autorizado ou credencial envolvida.
@@ -97,7 +101,7 @@ não que o app parou de funcionar.
 
 ## Limites que este deploy não resolve
 
-- Sem durabilidade de sessão: reiniciar perde ordens e posições.
+- Uma ordem viva durante a queda volta sem poder ser comandada: falta recuperação de execução em voo.
 - Sem autenticação: qualquer visitante opera a mesma conta simulada.
 - Sem multiusuário: uma sessão, uma conta.
 - Sem observabilidade: apenas logs do container e os health checks.

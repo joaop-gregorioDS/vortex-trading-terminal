@@ -2,6 +2,7 @@ using VortexTrading.Application.Trading.Execution;
 using VortexTrading.Application.Trading.Paper;
 using VortexTrading.Domain.Common.Time;
 using VortexTrading.Domain.Markets;
+using Microsoft.Extensions.Logging;
 using VortexTrading.Domain.Portfolio;
 using VortexTrading.Domain.Trading;
 using VortexTrading.Infrastructure.MarketData.Development;
@@ -31,13 +32,23 @@ public sealed class PaperTradingSession : IDisposable
 
     private readonly PaperExecutionProvider _provider;
     private readonly SimulationClock _clock;
+    private readonly IOrderStore? _store;
+    private readonly ILogger<PaperTradingSession>? _logger;
     private readonly object _gate = new();
+    private readonly Lazy<int> _restoredOrders;
 
-    public PaperTradingSession()
+    public PaperTradingSession(IOrderStore? store = null, ILogger<PaperTradingSession>? logger = null)
     {
+        _store = store;
+        _logger = logger;
         _clock = new SimulationClock();
         _provider = new PaperExecutionProvider(InstrumentId);
-        Coordinator = new ExecutionCoordinator(InstrumentId, _provider, _clock, _provider.Reports);
+        Coordinator = new ExecutionCoordinator(InstrumentId, _provider, _clock, _provider.Reports, store);
+
+        // Restoration is deferred and fault tolerant on purpose. The persistence foundation states that
+        // a valid configuration starts even when the database is unavailable and that readiness reports
+        // the failure; throwing here would turn a database outage into a process that cannot boot.
+        _restoredOrders = new Lazy<int>(RestoreOrders, LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     /// <summary>Execution scope that owns every order of this session.</summary>
@@ -71,6 +82,10 @@ public sealed class PaperTradingSession : IDisposable
     /// </remarks>
     public Portfolio Portfolio()
     {
+        // Recovery is triggered here as well as from the endpoints, so a caller that reaches the
+        // session directly still sees the restored history rather than an empty book.
+        EnsureRecovered();
+
         lock (_gate)
         {
             // Fully qualified because this member shares its name with the type it returns.
@@ -117,6 +132,10 @@ public sealed class PaperTradingSession : IDisposable
     {
         ArgumentNullException.ThrowIfNull(order);
 
+        // Recovery runs before the first mutation so a new order is never written alongside a history
+        // that has not been loaded yet, which would rewrite existing rows from a partial view.
+        EnsureRecovered();
+
         lock (_gate)
         {
             return Coordinator.SubmitOrderAsync(order, _clock.Now(), cancellationToken);
@@ -127,6 +146,7 @@ public sealed class PaperTradingSession : IDisposable
     public Task CancelAsync(OrderId orderId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(orderId);
+        EnsureRecovered();
 
         lock (_gate)
         {
@@ -135,6 +155,67 @@ public sealed class PaperTradingSession : IDisposable
     }
 
     public void Dispose() => _provider.Dispose();
+
+    /// <summary>
+    /// Loads persisted orders into the scope once, on first use, and reports how many were restored.
+    /// </summary>
+    /// <remarks>
+    /// The scope cannot be handed its history at construction without making a database outage fatal,
+    /// so recovery happens on the first operation that needs it. A failed load is logged and treated as
+    /// "nothing restored" rather than propagated: trading continues in memory and readiness keeps
+    /// reporting the real problem.
+    /// </remarks>
+    public int RestoredOrderCount
+    {
+        get
+        {
+            EnsureRecovered();
+            return _restoredOrders.Value;
+        }
+    }
+
+    /// <summary>Performs recovery if it has not happened yet.</summary>
+    /// <remarks>
+    /// Every read of owned state must call this first. Recovery being implicit and triggered only by
+    /// some operations made the order list and the order-by-id endpoint report an empty book after a
+    /// restart while the portfolio showed restored positions, which is exactly the kind of
+    /// inconsistency a lazy initialization must not create.
+    /// </remarks>
+    public void EnsureRecovered() => _ = _restoredOrders.Value;
+
+    private int RestoreOrders()
+    {
+        if (_store is null)
+        {
+            return 0;
+        }
+
+        lock (_gate)
+        {
+            try
+            {
+                var orders = _store.LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
+                foreach (var order in orders)
+                {
+                    Coordinator.Restore(order);
+                }
+
+                if (orders.Count > 0)
+                {
+                    _logger?.LogInformation("Restored {OrderCount} persisted orders into the execution scope.",
+                        orders.Count);
+                }
+
+                return orders.Count;
+            }
+            catch (Exception error)
+            {
+                _logger?.LogWarning(error,
+                    "Persisted orders could not be restored; continuing with an empty book.");
+                return 0;
+            }
+        }
+    }
 
     /// <summary>
     /// Clock driven by the feed instead of the machine. It exists so the coordinator can default an

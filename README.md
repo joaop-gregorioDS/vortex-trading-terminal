@@ -8,8 +8,8 @@ Projeto de terminal financeiro web original para estudar engenharia de software,
 
 ## Estágio atual
 
-<!-- ESTAGIO-ATUAL: TASK 5.0 -->
-**TASK 5.0** — o app opera de ponta a ponta em ambiente simulado: API de ordens, cancelamento, portfólio e mercado, alimentada por um feed determinístico, sobre posições com custo médio e P&L exatos (ADR-036 a ADR-039). Anteriormente: persistência do agregado `Order` (ADR-035) e o workflow de execução (ADR-032 a ADR-034).
+<!-- ESTAGIO-ATUAL: TASK 6.0 -->
+**TASK 6.0** — ordens e posições sobrevivem ao restart: gravação em PostgreSQL nos pontos de mutação e recuperação na primeira leitura (ADR-040), sobre a API e a sessão simulada das TASKs anteriores (ADR-036 a ADR-039). Anteriormente: persistência do agregado `Order` (ADR-035) e o workflow de execução (ADR-032 a ADR-034).
 
 A visão de produto é um **app web** de operação em ambiente **simulado**: Paper Trading de ponta a ponta, hospedado futuramente na VPS da Vortex Software. O frontend hoje apresenta o histórico de demonstração; a operação chega nas etapas seguintes do roadmap.
 
@@ -32,7 +32,7 @@ A visão de produto é um **app web** de operação em ambiente **simulado**: Pa
 | Persistência | `Order` e `OrderFill` em PostgreSQL, schema `trading`, valores exatos como `numeric` sem precisão declarada, enums por nome e primeira migration aplicada |
 | Infraestrutura | Health checks `live` e `ready`; PostgreSQL e Redis no Compose local; imagens Linux não-root e composição de produção em `deploy/` |
 
-Ainda **não** implementados: Risk, Backtesting, Strategy Lab, Algo Trading, autenticação, frontend de operação, persistência de sessão e deploy.
+Ainda **não** implementados: Risk, Backtesting, Strategy Lab, Algo Trading, autenticação, frontend de operação, recuperação de execução em voo e observabilidade.
 
 ## Arquitetura e stack
 
@@ -53,7 +53,7 @@ Infrastructure → Application + Domain
 Api            → Application + Infrastructure
 ```
 
-Consulte a [visão arquitetural](docs/architecture/overview.md) e os [ADRs](docs/adr/), atualmente 39 decisões aceitas.
+Consulte a [visão arquitetural](docs/architecture/overview.md) e os [ADRs](docs/adr/), atualmente 40 decisões aceitas.
 
 ## Validação
 

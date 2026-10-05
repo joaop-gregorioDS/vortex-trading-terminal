@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using VortexTrading.Domain.Markets;
 using VortexTrading.Infrastructure.Persistence;
 
 namespace VortexTrading.Infrastructure.Tests.Persistence;
@@ -23,6 +24,16 @@ public sealed class PersistenceTestFixture : IAsyncLifetime
 
     public string? SkipReason { get; private set; }
 
+    /// <summary>
+    /// Instrument reserved for persistence tests.
+    /// </summary>
+    /// <remarks>
+    /// Cleanup deletes only the rows for this instrument. An earlier version deleted every order and
+    /// fill in the schema on dispose, which silently wiped data written by a running API that shared
+    /// the same development database; tests must not destroy state they did not create.
+    /// </remarks>
+    public InstrumentId TestInstrument { get; } = new(new Guid("99999999-9999-9999-9999-999999999999"));
+
     public static string? ConnectionString() =>
         Environment.GetEnvironmentVariable("ConnectionStrings__PostgreSQL")
         ?? new ConfigurationBuilder()
@@ -41,6 +52,10 @@ public sealed class PersistenceTestFixture : IAsyncLifetime
         var services = new ServiceCollection();
         services.AddDbContext<VortexTradingDbContext>(options =>
             options.UseNpgsql(connectionString, postgres => postgres.SetPostgresVersion(18, 0)));
+        // The order store takes a factory, so the fixture must expose the same registration the API
+        // uses rather than a hand-built stand-in.
+        services.AddDbContextFactory<VortexTradingDbContext>(options =>
+            options.UseNpgsql(connectionString, postgres => postgres.SetPostgresVersion(18, 0)));
         _provider = services.BuildServiceProvider();
 
         using var scope = _provider.CreateScope();
@@ -54,11 +69,16 @@ public sealed class PersistenceTestFixture : IAsyncLifetime
         var token = TestContext.Current.CancellationToken;
         if (_provider is not null)
         {
+            // Scoped to this fixture's own instrument, so a running application sharing the database
+            // keeps its data.
             await using (var scope = _provider.CreateAsyncScope())
             {
                 var context = scope.ServiceProvider.GetRequiredService<VortexTradingDbContext>();
-                await context.Database.ExecuteSqlRawAsync("DELETE FROM trading.order_fills", token);
-                await context.Database.ExecuteSqlRawAsync("DELETE FROM trading.orders", token);
+                await context.Database.ExecuteSqlRawAsync(
+                    "DELETE FROM trading.order_fills WHERE \"OrderId\" IN (SELECT \"Id\" FROM trading.orders WHERE \"InstrumentId\" = {0})",
+                    [TestInstrument.Value], token);
+                await context.Database.ExecuteSqlRawAsync(
+                    "DELETE FROM trading.orders WHERE \"InstrumentId\" = {0}", [TestInstrument.Value], token);
             }
 
             await _provider.DisposeAsync();
@@ -74,6 +94,17 @@ public sealed class PersistenceTestFixture : IAsyncLifetime
         }
 
         return new PersistenceSession(_provider!.CreateScope());
+    }
+
+    /// <summary>Creates a context factory for components that take one, or skips the calling test.</summary>
+    public IDbContextFactory<VortexTradingDbContext> CreateContextFactory()
+    {
+        if (!IsAvailable)
+        {
+            Assert.Skip(SkipReason ?? "PostgreSQL is not available.");
+        }
+
+        return _provider!.GetRequiredService<IDbContextFactory<VortexTradingDbContext>>();
     }
 
     /// <summary>Keeps the scope alive for as long as the context is used.</summary>

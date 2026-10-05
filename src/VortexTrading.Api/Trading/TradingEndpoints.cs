@@ -34,15 +34,24 @@ public static class TradingEndpoints
         ArgumentNullException.ThrowIfNull(app);
 
         app.MapGet("/api/trading/market", (PaperTradingSession session) =>
-            Results.Json(TradingMapping.ToResponse(PaperTradingSession.InstrumentId, session.LastPrice,
-                session.CurrentTime, session.RestingOrderCount), Options));
+        {
+            session.EnsureRecovered();
+            return Results.Json(TradingMapping.ToResponse(PaperTradingSession.InstrumentId, session.LastPrice,
+                session.CurrentTime, session.RestingOrderCount), Options);
+        });
 
-        app.MapGet("/api/orders", (PaperTradingSession session) => Results.Json(
-            session.Coordinator.Orders.Select(TradingMapping.ToResponse).ToArray(), Options));
+        app.MapGet("/api/orders", (PaperTradingSession session) =>
+        {
+            // Recovery is explicit on every read of owned state. Leaving it implicit made the list
+            // endpoint report an empty book after a restart while the portfolio showed positions.
+            session.EnsureRecovered();
+            return Results.Json(session.Coordinator.Orders.Select(TradingMapping.ToResponse).ToArray(), Options);
+        });
 
         app.MapGet("/api/orders/{orderId}", (string orderId, PaperTradingSession session) =>
             Guard(() =>
             {
+                session.EnsureRecovered();
                 var id = OrderId.From(TradingMapping.ParseOrderId(orderId));
                 return session.Coordinator.TryGetOrder(id, out var order) && order is not null
                     ? Results.Json(TradingMapping.ToResponse(order), Options)

@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using VortexTrading.Application.Trading.Execution;
+using VortexTrading.Infrastructure.Trading.Session;
 using VortexTrading.Infrastructure.Persistence;
 
 namespace VortexTrading.Infrastructure;
@@ -32,8 +34,19 @@ public static class DependencyInjection
                 "ConnectionStrings:PostgreSQL must be a valid PostgreSQL connection string.");
         }
 
-        services.AddDbContext<VortexTradingDbContext>(options =>
+        // One options registration, owned by the factory. Registering AddDbContext as well would add a
+        // second, scoped DbContextOptions that the singleton factory cannot consume, and the host would
+        // refuse to start.
+        services.AddDbContextFactory<VortexTradingDbContext>(options =>
             options.UseNpgsql(connectionString, postgres => postgres.SetPostgresVersion(18, 0)));
+
+        // The request-scoped context is derived from the factory so both share one options instance.
+        // Ordinary consumers keep taking a scoped VortexTradingDbContext, while the execution scope,
+        // which is a singleton and outlives any request, takes the factory instead.
+        services.AddScoped(provider =>
+            provider.GetRequiredService<IDbContextFactory<VortexTradingDbContext>>().CreateDbContext());
+
+        services.AddSingleton<IOrderStore, PostgresOrderStore>();
 
         services.AddHealthChecks()
             .AddDbContextCheck<VortexTradingDbContext>("postgresql", tags: ["ready"]);

@@ -51,7 +51,8 @@ public sealed class IExecutionProviderContractTests
             "VortexTrading.Application.Trading.Execution.OrderExecutionWorkflow", // TASK 0.42, ADR-034
             "VortexTrading.Application.Trading.Execution.ExecutionCoordinator",   // TASK 3.0, ADR-037
             "VortexTrading.Application.Trading.Execution.IApplicationClock",      // TASK 3.0, ADR-037
-            "VortexTrading.Application.Trading.Execution.IPaperMarketObserver"    // TASK 3.0, ADR-037
+            "VortexTrading.Application.Trading.Execution.IPaperMarketObserver",   // TASK 3.0, ADR-037
+            "VortexTrading.Application.Trading.Execution.IOrderStore"             // TASK 6.0, ADR-040
         };
 
         Assert.Equal(

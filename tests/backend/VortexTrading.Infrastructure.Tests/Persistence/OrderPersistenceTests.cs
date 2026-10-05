@@ -21,7 +21,7 @@ public sealed class OrderPersistenceTests(PersistenceTestFixture fixture) : ICla
     public async Task MarketOrderWithNullLimitSurvivesRoundTrip()
     {
         await using var session = fixture.OpenSession();
-        var order = Order.CreateMarket(OrderId.From(Guid.NewGuid()), InstrumentId.From(Guid.NewGuid()),
+        var order = Order.CreateMarket(OrderId.From(Guid.NewGuid()), fixture.TestInstrument,
             OrderSide.Buy, new Quantity(10m), TimeInForce.GTC, Created);
 
         session.Context.Orders.Add(order);
@@ -43,7 +43,7 @@ public sealed class OrderPersistenceTests(PersistenceTestFixture fixture) : ICla
     public async Task AcceptedOrderWithFillsPreservesLifecycleAndDerivedQuantities()
     {
         await using var session = fixture.OpenSession();
-        var order = Order.CreateLimit(OrderId.From(Guid.NewGuid()), InstrumentId.From(Guid.NewGuid()),
+        var order = Order.CreateLimit(OrderId.From(Guid.NewGuid()), fixture.TestInstrument,
             OrderSide.Buy, new Quantity(10m), new Price(32.50m), TimeInForce.GTC, Created);
         order.Accept(new UtcInstant(Created.Value.AddMinutes(1)));
         var filledAt = new UtcInstant(Created.Value.AddMinutes(2));
@@ -75,7 +75,7 @@ public sealed class OrderPersistenceTests(PersistenceTestFixture fixture) : ICla
         // 27 fractional digits: any fixed numeric(p,s) with a smaller scale would round this.
         var quantity = 1.000000000000000000000000001m;
         var price = 0.000000000000000000000000003m;
-        var order = Order.CreateLimit(OrderId.From(Guid.NewGuid()), InstrumentId.From(Guid.NewGuid()),
+        var order = Order.CreateLimit(OrderId.From(Guid.NewGuid()), fixture.TestInstrument,
             OrderSide.Sell, new Quantity(quantity), new Price(price), TimeInForce.GTC, Created);
         order.Accept(Created);
         order.ApplyFill(new OrderFill(ExecutionId.From(Guid.NewGuid()), order.Id, new Quantity(quantity),
@@ -97,7 +97,7 @@ public sealed class OrderPersistenceTests(PersistenceTestFixture fixture) : ICla
     {
         await using var session = fixture.OpenSession();
         var executionId = ExecutionId.From(Guid.NewGuid());
-        var order = Order.CreateMarket(OrderId.From(Guid.NewGuid()), InstrumentId.From(Guid.NewGuid()),
+        var order = Order.CreateMarket(OrderId.From(Guid.NewGuid()), fixture.TestInstrument,
             OrderSide.Buy, new Quantity(10m), TimeInForce.GTC, Created);
         order.Accept(Created);
         order.ApplyFill(new OrderFill(executionId, order.Id, new Quantity(3m), new Price(10m), Created), Created);
@@ -107,7 +107,7 @@ public sealed class OrderPersistenceTests(PersistenceTestFixture fixture) : ICla
         // A fresh context avoids change-tracker identity conflicts, so the failure must come from
         // the database primary key: one execution identity can never be stored twice.
         await using var second = fixture.OpenSession();
-        var other = Order.CreateMarket(OrderId.From(Guid.NewGuid()), InstrumentId.From(Guid.NewGuid()),
+        var other = Order.CreateMarket(OrderId.From(Guid.NewGuid()), fixture.TestInstrument,
             OrderSide.Buy, new Quantity(10m), TimeInForce.GTC, Created);
         other.Accept(Created);
         other.ApplyFill(new OrderFill(executionId, other.Id, new Quantity(3m), new Price(10m), Created), Created);
@@ -120,7 +120,7 @@ public sealed class OrderPersistenceTests(PersistenceTestFixture fixture) : ICla
     public async Task EnumMembersAreStoredByNameNotByOrdinal()
     {
         await using var session = fixture.OpenSession();
-        var order = Order.CreateMarket(OrderId.From(Guid.NewGuid()), InstrumentId.From(Guid.NewGuid()),
+        var order = Order.CreateMarket(OrderId.From(Guid.NewGuid()), fixture.TestInstrument,
             OrderSide.Sell, new Quantity(1m), TimeInForce.GTC, Created);
         order.Accept(Created);
         order.Reject(OrderRejectionReason.ExecutionProviderRejected, Created);
@@ -149,7 +149,7 @@ public sealed class OrderPersistenceTests(PersistenceTestFixture fixture) : ICla
         await using var session = fixture.OpenSession();
         foreach (var reason in Enum.GetValues<OrderRejectionReason>())
         {
-            var order = Order.CreateMarket(OrderId.From(Guid.NewGuid()), InstrumentId.From(Guid.NewGuid()),
+            var order = Order.CreateMarket(OrderId.From(Guid.NewGuid()), fixture.TestInstrument,
                 OrderSide.Buy, new Quantity(1m), TimeInForce.GTC, Created);
             order.Reject(reason, Created);
             session.Context.Orders.Add(order);
@@ -169,7 +169,7 @@ public sealed class OrderPersistenceTests(PersistenceTestFixture fixture) : ICla
         // timestamptz resolves to microseconds, so an aligned instant must survive unchanged.
         var preciseCreated = new UtcInstant(new DateTimeOffset(2026, 10, 6, 13, 30, 0, TimeSpan.Zero).AddTicks(1234560));
         var preciseExecuted = new UtcInstant(preciseCreated.Value.AddTicks(10));
-        var order = Order.CreateMarket(OrderId.From(Guid.NewGuid()), InstrumentId.From(Guid.NewGuid()),
+        var order = Order.CreateMarket(OrderId.From(Guid.NewGuid()), fixture.TestInstrument,
             OrderSide.Buy, new Quantity(1m), TimeInForce.GTC, preciseCreated);
         order.Accept(preciseCreated);
         order.ApplyFill(new OrderFill(ExecutionId.From(Guid.NewGuid()), order.Id, new Quantity(1m),
@@ -191,7 +191,7 @@ public sealed class OrderPersistenceTests(PersistenceTestFixture fixture) : ICla
         // the write, so the value that reaches the database is the value that comes back.
         var withExtraTicks = new UtcInstant(new DateTimeOffset(2026, 10, 6, 13, 30, 0, TimeSpan.Zero).AddTicks(1234567));
         var normalized = new UtcInstant(withExtraTicks.Value.AddTicks(-(withExtraTicks.Value.Ticks % 10)));
-        var order = Order.CreateMarket(OrderId.From(Guid.NewGuid()), InstrumentId.From(Guid.NewGuid()),
+        var order = Order.CreateMarket(OrderId.From(Guid.NewGuid()), fixture.TestInstrument,
             OrderSide.Buy, new Quantity(1m), TimeInForce.GTC, withExtraTicks);
         session.Context.Orders.Add(order);
         await session.Context.SaveChangesAsync(Token);
@@ -231,7 +231,7 @@ public sealed class OrderPersistenceTests(PersistenceTestFixture fixture) : ICla
 
         foreach (var (expected, advance) in cases)
         {
-            var order = Order.CreateMarket(OrderId.From(Guid.NewGuid()), InstrumentId.From(Guid.NewGuid()),
+            var order = Order.CreateMarket(OrderId.From(Guid.NewGuid()), fixture.TestInstrument,
                 OrderSide.Buy, new Quantity(1m), TimeInForce.GTC, Created);
             advance(order);
             session.Context.Orders.Add(order);
@@ -268,7 +268,7 @@ public sealed class OrderPersistenceTests(PersistenceTestFixture fixture) : ICla
     public async Task FillsAreRemovedWithTheirOrder()
     {
         await using var session = fixture.OpenSession();
-        var order = Order.CreateMarket(OrderId.From(Guid.NewGuid()), InstrumentId.From(Guid.NewGuid()),
+        var order = Order.CreateMarket(OrderId.From(Guid.NewGuid()), fixture.TestInstrument,
             OrderSide.Buy, new Quantity(1m), TimeInForce.GTC, Created);
         order.Accept(Created);
         order.ApplyFill(new OrderFill(ExecutionId.From(Guid.NewGuid()), order.Id,
