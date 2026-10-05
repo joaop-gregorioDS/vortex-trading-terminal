@@ -1,5 +1,6 @@
 using System.Reflection;
 using VortexTrading.Application.Trading.Execution;
+using VortexTrading.Application.Trading.Paper;
 using VortexTrading.Domain.Common.Time;
 using VortexTrading.Domain.Markets;
 using VortexTrading.Domain.Trading;
@@ -40,11 +41,31 @@ public sealed class IExecutionProviderContractTests
         var types = typeof(IExecutionProvider).Assembly.GetTypes()
             .Where(type => type.IsPublic && type.Namespace == typeof(IExecutionProvider).Namespace);
 
-        // TASK 0.41 authorizes this exact optional expansion; TASK 0.42 will implement it.
-        // Every other public type must match the six checkpointed boundary contracts.
+        // TASK 0.41 authorizes an optional Application bridge; TASK 0.42 implemented it as
+        // OrderExecutionWorkflow. Every other public type must match the six checkpointed contracts.
         Assert.Equal(BoundaryTypes().OrderBy(type => type.FullName).ToArray(),
             types.Where(type => type.FullName != "VortexTrading.Application.Trading.Execution.OrderExecutionWorkflow")
                 .OrderBy(type => type.FullName).ToArray());
+    }
+
+    [Fact]
+    public void PaperExecutionNamespaceKeepsExecutionAndMarketDataTypesOut()
+    {
+        // ADR-036 authorizes a separate Trading.Paper namespace instead of widening the frozen
+        // execution boundary. This guard fails if a market-data, execution-boundary or infrastructure
+        // type is ever pulled into it.
+        var paper = typeof(PaperMarketObservation);
+        var types = paper.Assembly.GetTypes()
+            .Where(type => type.IsPublic && type.Namespace == paper.Namespace)
+            .ToArray();
+
+        Assert.NotEmpty(types);
+        Assert.DoesNotContain(types.SelectMany(PublicSignatureTypes), type =>
+            type == typeof(Quote) || type == typeof(Trade) || type == typeof(Candle)
+            || type == typeof(IExecutionProvider) || type == typeof(ExecutionReport)
+            || type == typeof(OrderSubmission) || type.IsSubclassOf(typeof(ExecutionProviderException))
+            || type.Namespace == typeof(IExecutionProvider).Namespace
+            || type.Namespace?.StartsWith("VortexTrading.Infrastructure", StringComparison.Ordinal) == true);
     }
 
     [Fact]

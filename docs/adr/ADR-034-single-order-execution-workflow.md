@@ -83,9 +83,11 @@ shutdown infrastructure before the single-Order mechanics are validated. It is d
 
 ## Deferred decisions
 
-Paper provider/matching; coordinator and production pump; scope hosting/readiness; reconnect and
-reconciliation; durable Order/workflow history and crash recovery; Account/Position/Risk; contextual
-Instrument resolution; Market Data/Replay integrations; API/frontend; observability integration.
+Coordinator and production pump; scope hosting/readiness; reconnect and reconciliation; durable
+Order/workflow history and crash recovery; Account/Position/Risk; contextual Instrument resolution;
+Market Data/Replay integrations; API/frontend; observability integration.
+
+Paper provider/matching was deferred here and is now resolved by ADR-036.
 
 ## References
 

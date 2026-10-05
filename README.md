@@ -8,8 +8,8 @@ Projeto de terminal financeiro web original para estudar engenharia de software,
 
 ## Estágio atual
 
-<!-- ESTAGIO-ATUAL: TASK 1.0 -->
-**TASK 1.0** — primeiro modelo de persistência real: o agregado `Order` e seus fills em PostgreSQL, com a primeira migration (ADR-035). Anteriormente, a TASK 0.42 entregou o workflow de execução de ordem única (ADR-032, ADR-033 e ADR-034, todos aceitos).
+<!-- ESTAGIO-ATUAL: TASK 2.0 -->
+**TASK 2.0** — Paper Execution Provider determinístico: matching com liquidez finita e fills parciais, preço limite, identidade de execução derivada e nenhum look-ahead (ADR-036). Anteriormente, a TASK 1.0 persistiu o agregado `Order` (ADR-035) e a TASK 0.42 entregou o workflow de execução de ordem única (ADR-032, ADR-033 e ADR-034).
 
 A visão de produto é um **app web** de operação em ambiente **simulado**: Paper Trading de ponta a ponta, hospedado futuramente na VPS da Vortex Software. O frontend hoje apresenta o histórico de demonstração; a operação chega nas etapas seguintes do roadmap.
 
@@ -20,6 +20,7 @@ A visão de produto é um **app web** de operação em ambiente **simulado**: Pa
 | Domínio financeiro | `Money`, `Price`, `Quantity`, `Currency` com precisão decimal exata; `Instrument`, `Symbol`, `Venue`, `AssetClass`, `Candle`, `Quote`, `Trade`; `UtcInstant` para tempo UTC |
 | Ordens | `Order` e `OrderFill` com ciclo de vida, identidade de execução e conservação de quantidade provada em unidades inteiras de 10⁻²⁸ |
 | Execução | `IExecutionProvider`, fatos normalizados (`Accepted`/`Rejected`/`Fill`/`Cancelled`), falhas operacionais e `OrderExecutionWorkflow` |
+| Paper Exchange | `PaperExecutionProvider` determinístico: liquidez finita com fills parciais, limite preenchido no próprio limite, FIFO e `ExecutionId` derivado. Sem relógio, sem aleatoriedade e sem look-ahead |
 | Market Data | Porta de provider, orquestrador, provider de simulação determinístico e provider histórico de replay |
 | Replay | `ReplaySession`, `ReplayTimeline`, `CausalReplaySession` com semântica de disponibilidade temporal, sem uso de dados futuros |
 | Indicadores | SMA, EMA, MACD, RSI, ATR, Stochastic, Bollinger Bands, VWAP, ADX e OBV com consumo em lote e runtime causal em replay |
@@ -27,7 +28,7 @@ A visão de produto é um **app web** de operação em ambiente **simulado**: Pa
 | Persistência | `Order` e `OrderFill` em PostgreSQL, schema `trading`, valores exatos como `numeric` sem precisão declarada, enums por nome e primeira migration aplicada |
 | Infraestrutura | Health checks `live` e `ready`; PostgreSQL e Redis no Compose local |
 
-Ainda **não** implementados: Paper Exchange, Portfolio/posições, Risk, Backtesting, Strategy Lab, Algo Trading, autenticação, APIs de ordem e deploy.
+Ainda **não** implementados: Portfolio/posições, Risk, Backtesting, Strategy Lab, Algo Trading, autenticação, APIs de ordem, coordinator de execução e deploy.
 
 ## Arquitetura e stack
 
@@ -48,7 +49,7 @@ Infrastructure → Application + Domain
 Api            → Application + Infrastructure
 ```
 
-Consulte a [visão arquitetural](docs/architecture/overview.md) e os [ADRs](docs/adr/), atualmente 35 decisões aceitas.
+Consulte a [visão arquitetural](docs/architecture/overview.md) e os [ADRs](docs/adr/), atualmente 36 decisões aceitas.
 
 ## Validação
 
@@ -94,7 +95,7 @@ A connection string local fica em User Secrets (`ConnectionStrings:PostgreSQL`);
 
 1. Baseline de engenharia e arquitetura. **Concluído.**
 2. Bootstrap revisado do frontend, testes e infraestrutura de desenvolvimento. **Concluído.**
-3. Dados simulados/autorizados, visualização e Paper Trading. **Em andamento:** dados e visualização prontos; persistência de ordens pronta; Paper Trading em desenvolvimento.
+3. Dados simulados/autorizados, visualização e Paper Trading. **Concluído:** dados, visualização, persistência de ordens e Paper Exchange.
 4. Portfolio, Risk e indicadores centrais. Indicadores concluídos; Portfolio e Risk pendentes.
 5. Replay, backtesting, Strategy Lab e runtime de estratégias. Replay concluído; backtesting, Strategy Lab e runtime pendentes.
 6. Observabilidade, automação de validação e deploy. CI implementado; observabilidade e deploy pendentes.
