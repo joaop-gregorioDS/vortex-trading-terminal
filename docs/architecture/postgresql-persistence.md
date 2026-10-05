@@ -1,5 +1,10 @@
 # PostgreSQL Persistence Foundation — TASK 0.5
 
+> **Continuidade:** este documento descreve a fundação técnica (composição, conexão, health e
+> tooling) e permanece válido. O primeiro modelo de negócio foi adicionado depois, com o agregado
+> `Order` e a primeira migration; consulte [order-persistence.md](order-persistence.md) e o ADR-035.
+> As afirmações abaixo sobre "zero DbSets" e "nenhuma migration" descrevem o estado da TASK 0.5.
+
 Fundação sobre `0958c47`, sem entidades, repositories, migrations ou dados de negócio. Next.js e ASP.NET Core continuam no host; PostgreSQL e Redis continuam no Compose aprovado, sem alterações na infraestrutura Docker.
 
 ## Dependências e compatibilidade

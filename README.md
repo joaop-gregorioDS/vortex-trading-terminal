@@ -8,8 +8,8 @@ Projeto de terminal financeiro web original para estudar engenharia de software,
 
 ## Estágio atual
 
-<!-- ESTAGIO-ATUAL: TASK 0.42 -->
-**TASK 0.42** — workflow de execução de ordem única sobre o domínio de ordens e a fronteira de execution provider (ADR-032, ADR-033 e ADR-034, todos aceitos).
+<!-- ESTAGIO-ATUAL: TASK 1.0 -->
+**TASK 1.0** — primeiro modelo de persistência real: o agregado `Order` e seus fills em PostgreSQL, com a primeira migration (ADR-035). Anteriormente, a TASK 0.42 entregou o workflow de execução de ordem única (ADR-032, ADR-033 e ADR-034, todos aceitos).
 
 A visão de produto é um **app web** de operação em ambiente **simulado**: Paper Trading de ponta a ponta, hospedado futuramente na VPS da Vortex Software. O frontend hoje apresenta o histórico de demonstração; a operação chega nas etapas seguintes do roadmap.
 
@@ -24,10 +24,10 @@ A visão de produto é um **app web** de operação em ambiente **simulado**: Pa
 | Replay | `ReplaySession`, `ReplayTimeline`, `CausalReplaySession` com semântica de disponibilidade temporal, sem uso de dados futuros |
 | Indicadores | SMA, EMA, MACD, RSI, ATR, Stochastic, Bollinger Bands, VWAP, ADX e OBV com consumo em lote e runtime causal em replay |
 | Charts | Endpoint `POST /api/chart-snapshots` (somente Development) e página inicial com candles de um minuto |
-| Persistência | EF Core e Npgsql compostos e configurados; `DbContext` ainda sem entidades, migrations ou dados de negócio |
-| Infraestrutura | Health checks `live` e `ready`; PostgreSQL e Redis declarados no Compose local |
+| Persistência | `Order` e `OrderFill` em PostgreSQL, schema `trading`, valores exatos como `numeric` sem precisão declarada, enums por nome e primeira migration aplicada |
+| Infraestrutura | Health checks `live` e `ready`; PostgreSQL e Redis no Compose local |
 
-Ainda **não** implementados: Paper Exchange, Portfolio/posições, Risk, Backtesting, Strategy Lab, Algo Trading, autenticação, persistência de negócio e deploy.
+Ainda **não** implementados: Paper Exchange, Portfolio/posições, Risk, Backtesting, Strategy Lab, Algo Trading, autenticação, APIs de ordem e deploy.
 
 ## Arquitetura e stack
 
@@ -48,7 +48,7 @@ Infrastructure → Application + Domain
 Api            → Application + Infrastructure
 ```
 
-Consulte a [visão arquitetural](docs/architecture/overview.md) e os [ADRs](docs/adr/), atualmente 34 decisões aceitas.
+Consulte a [visão arquitetural](docs/architecture/overview.md) e os [ADRs](docs/adr/), atualmente 35 decisões aceitas.
 
 ## Validação
 
@@ -94,7 +94,7 @@ A connection string local fica em User Secrets (`ConnectionStrings:PostgreSQL`);
 
 1. Baseline de engenharia e arquitetura. **Concluído.**
 2. Bootstrap revisado do frontend, testes e infraestrutura de desenvolvimento. **Concluído.**
-3. Dados simulados/autorizados, visualização e Paper Trading. **Em andamento:** dados e visualização prontos; Paper Trading em desenvolvimento.
+3. Dados simulados/autorizados, visualização e Paper Trading. **Em andamento:** dados e visualização prontos; persistência de ordens pronta; Paper Trading em desenvolvimento.
 4. Portfolio, Risk e indicadores centrais. Indicadores concluídos; Portfolio e Risk pendentes.
 5. Replay, backtesting, Strategy Lab e runtime de estratégias. Replay concluído; backtesting, Strategy Lab e runtime pendentes.
 6. Observabilidade, automação de validação e deploy. CI implementado; observabilidade e deploy pendentes.

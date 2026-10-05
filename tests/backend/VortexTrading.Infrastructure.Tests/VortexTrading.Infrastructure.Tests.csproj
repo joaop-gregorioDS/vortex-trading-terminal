@@ -7,6 +7,8 @@
     <Nullable>enable</Nullable>
     <IsTestProject>true</IsTestProject>
     <IsPackable>false</IsPackable>
+    <!-- Same store as the API, so persistence tests resolve the development connection string. -->
+    <UserSecretsId>46910865-6270-4e96-aed2-41972484b9d6</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,6 +18,8 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <!-- Lets persistence tests resolve the same User Secrets the API uses in Development. -->
+    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.0.0" />
   </ItemGroup>
 
   <ItemGroup>
