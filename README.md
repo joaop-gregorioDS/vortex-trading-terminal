@@ -8,8 +8,8 @@ Projeto de terminal financeiro web original para estudar engenharia de software,
 
 ## Estágio atual
 
-<!-- ESTAGIO-ATUAL: TASK 3.0 -->
-**TASK 3.0** — coordinator do escopo de execução: um consumidor de relatórios, roteamento por `OrderId`, relógio apenas na fronteira e efeitos visíveis ao retorno de cada operação (ADR-037). Anteriormente, a TASK 2.0 entregou o Paper Execution Provider (ADR-036), a TASK 1.0 persistiu o agregado `Order` (ADR-035) e a TASK 0.42 entregou o workflow de execução (ADR-032, ADR-033 e ADR-034).
+<!-- ESTAGIO-ATUAL: TASK 5.0 -->
+**TASK 5.0** — o app opera de ponta a ponta em ambiente simulado: API de ordens, cancelamento, portfólio e mercado, alimentada por um feed determinístico, sobre posições com custo médio e P&L exatos (ADR-036 a ADR-039). Anteriormente: persistência do agregado `Order` (ADR-035) e o workflow de execução (ADR-032 a ADR-034).
 
 A visão de produto é um **app web** de operação em ambiente **simulado**: Paper Trading de ponta a ponta, hospedado futuramente na VPS da Vortex Software. O frontend hoje apresenta o histórico de demonstração; a operação chega nas etapas seguintes do roadmap.
 
@@ -22,6 +22,9 @@ A visão de produto é um **app web** de operação em ambiente **simulado**: Pa
 | Execução | `IExecutionProvider`, fatos normalizados (`Accepted`/`Rejected`/`Fill`/`Cancelled`), falhas operacionais e `OrderExecutionWorkflow` |
 | Paper Exchange | `PaperExecutionProvider` determinístico: liquidez finita com fills parciais, limite preenchido no próprio limite, FIFO e `ExecutionId` derivado. Sem relógio, sem aleatoriedade e sem look-ahead |
 | Coordenação | `ExecutionCoordinator`: dono do escopo, consumidor único dos relatórios, roteamento por `OrderId` e tempo explícito em cada operação |
+| Portfólio | `ExactDecimal`, `Position` e `Portfolio`: custo médio, P&L realizado e não realizado exatos, sem escala universal |
+| API de trading | `GET /api/trading/market`, `POST/GET /api/orders`, `POST /api/orders/{id}/cancel` e `GET /api/portfolio`, somente em Development |
+| Sessão simulada | `PaperTradingSession` (singleton) e feed determinístico de um tick por segundo; valores exatos trafegam como string decimal |
 | Market Data | Porta de provider, orquestrador, provider de simulação determinístico e provider histórico de replay |
 | Replay | `ReplaySession`, `ReplayTimeline`, `CausalReplaySession` com semântica de disponibilidade temporal, sem uso de dados futuros |
 | Indicadores | SMA, EMA, MACD, RSI, ATR, Stochastic, Bollinger Bands, VWAP, ADX e OBV com consumo em lote e runtime causal em replay |
@@ -29,7 +32,7 @@ A visão de produto é um **app web** de operação em ambiente **simulado**: Pa
 | Persistência | `Order` e `OrderFill` em PostgreSQL, schema `trading`, valores exatos como `numeric` sem precisão declarada, enums por nome e primeira migration aplicada |
 | Infraestrutura | Health checks `live` e `ready`; PostgreSQL e Redis no Compose local |
 
-Ainda **não** implementados: Portfolio/posições, Risk, Backtesting, Strategy Lab, Algo Trading, autenticação, APIs de ordem e deploy.
+Ainda **não** implementados: Risk, Backtesting, Strategy Lab, Algo Trading, autenticação, frontend de operação, persistência de sessão e deploy.
 
 ## Arquitetura e stack
 
@@ -50,7 +53,7 @@ Infrastructure → Application + Domain
 Api            → Application + Infrastructure
 ```
 
-Consulte a [visão arquitetural](docs/architecture/overview.md) e os [ADRs](docs/adr/), atualmente 37 decisões aceitas.
+Consulte a [visão arquitetural](docs/architecture/overview.md) e os [ADRs](docs/adr/), atualmente 39 decisões aceitas.
 
 ## Validação
 
@@ -97,7 +100,7 @@ A connection string local fica em User Secrets (`ConnectionStrings:PostgreSQL`);
 1. Baseline de engenharia e arquitetura. **Concluído.**
 2. Bootstrap revisado do frontend, testes e infraestrutura de desenvolvimento. **Concluído.**
 3. Dados simulados/autorizados, visualização e Paper Trading. **Concluído:** dados, visualização, persistência de ordens e Paper Exchange.
-4. Portfolio, Risk e indicadores centrais. Indicadores concluídos; Portfolio e Risk pendentes.
+4. Portfolio, Risk e indicadores centrais. Indicadores e Portfolio concluídos; Risk pendente.
 5. Replay, backtesting, Strategy Lab e runtime de estratégias. Replay concluído; backtesting, Strategy Lab e runtime pendentes.
 6. Observabilidade, automação de validação e deploy. CI implementado; observabilidade e deploy pendentes.
 
