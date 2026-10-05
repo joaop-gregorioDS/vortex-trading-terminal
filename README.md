@@ -8,8 +8,8 @@ Projeto de terminal financeiro web original para estudar engenharia de software,
 
 ## Estágio atual
 
-<!-- ESTAGIO-ATUAL: TASK 2.0 -->
-**TASK 2.0** — Paper Execution Provider determinístico: matching com liquidez finita e fills parciais, preço limite, identidade de execução derivada e nenhum look-ahead (ADR-036). Anteriormente, a TASK 1.0 persistiu o agregado `Order` (ADR-035) e a TASK 0.42 entregou o workflow de execução de ordem única (ADR-032, ADR-033 e ADR-034).
+<!-- ESTAGIO-ATUAL: TASK 3.0 -->
+**TASK 3.0** — coordinator do escopo de execução: um consumidor de relatórios, roteamento por `OrderId`, relógio apenas na fronteira e efeitos visíveis ao retorno de cada operação (ADR-037). Anteriormente, a TASK 2.0 entregou o Paper Execution Provider (ADR-036), a TASK 1.0 persistiu o agregado `Order` (ADR-035) e a TASK 0.42 entregou o workflow de execução (ADR-032, ADR-033 e ADR-034).
 
 A visão de produto é um **app web** de operação em ambiente **simulado**: Paper Trading de ponta a ponta, hospedado futuramente na VPS da Vortex Software. O frontend hoje apresenta o histórico de demonstração; a operação chega nas etapas seguintes do roadmap.
 
@@ -21,6 +21,7 @@ A visão de produto é um **app web** de operação em ambiente **simulado**: Pa
 | Ordens | `Order` e `OrderFill` com ciclo de vida, identidade de execução e conservação de quantidade provada em unidades inteiras de 10⁻²⁸ |
 | Execução | `IExecutionProvider`, fatos normalizados (`Accepted`/`Rejected`/`Fill`/`Cancelled`), falhas operacionais e `OrderExecutionWorkflow` |
 | Paper Exchange | `PaperExecutionProvider` determinístico: liquidez finita com fills parciais, limite preenchido no próprio limite, FIFO e `ExecutionId` derivado. Sem relógio, sem aleatoriedade e sem look-ahead |
+| Coordenação | `ExecutionCoordinator`: dono do escopo, consumidor único dos relatórios, roteamento por `OrderId` e tempo explícito em cada operação |
 | Market Data | Porta de provider, orquestrador, provider de simulação determinístico e provider histórico de replay |
 | Replay | `ReplaySession`, `ReplayTimeline`, `CausalReplaySession` com semântica de disponibilidade temporal, sem uso de dados futuros |
 | Indicadores | SMA, EMA, MACD, RSI, ATR, Stochastic, Bollinger Bands, VWAP, ADX e OBV com consumo em lote e runtime causal em replay |
@@ -28,7 +29,7 @@ A visão de produto é um **app web** de operação em ambiente **simulado**: Pa
 | Persistência | `Order` e `OrderFill` em PostgreSQL, schema `trading`, valores exatos como `numeric` sem precisão declarada, enums por nome e primeira migration aplicada |
 | Infraestrutura | Health checks `live` e `ready`; PostgreSQL e Redis no Compose local |
 
-Ainda **não** implementados: Portfolio/posições, Risk, Backtesting, Strategy Lab, Algo Trading, autenticação, APIs de ordem, coordinator de execução e deploy.
+Ainda **não** implementados: Portfolio/posições, Risk, Backtesting, Strategy Lab, Algo Trading, autenticação, APIs de ordem e deploy.
 
 ## Arquitetura e stack
 
@@ -49,7 +50,7 @@ Infrastructure → Application + Domain
 Api            → Application + Infrastructure
 ```
 
-Consulte a [visão arquitetural](docs/architecture/overview.md) e os [ADRs](docs/adr/), atualmente 36 decisões aceitas.
+Consulte a [visão arquitetural](docs/architecture/overview.md) e os [ADRs](docs/adr/), atualmente 37 decisões aceitas.
 
 ## Validação
 

@@ -39,13 +39,24 @@ public sealed class IExecutionProviderContractTests
     public void ProductionNamespaceContainsOnlyAuthorizedExecutionTypes()
     {
         var types = typeof(IExecutionProvider).Assembly.GetTypes()
-            .Where(type => type.IsPublic && type.Namespace == typeof(IExecutionProvider).Namespace);
+            .Where(type => type.IsPublic && type.Namespace == typeof(IExecutionProvider).Namespace)
+            .OrderBy(type => type.FullName)
+            .ToArray();
 
-        // TASK 0.41 authorizes an optional Application bridge; TASK 0.42 implemented it as
-        // OrderExecutionWorkflow. Every other public type must match the six checkpointed contracts.
-        Assert.Equal(BoundaryTypes().OrderBy(type => type.FullName).ToArray(),
-            types.Where(type => type.FullName != "VortexTrading.Application.Trading.Execution.OrderExecutionWorkflow")
-                .OrderBy(type => type.FullName).ToArray());
+        // The execution boundary is a frozen checkpoint plus explicitly authorized bridges. Each
+        // addition must be named here, so an accidental new public type fails the build instead of
+        // silently widening the boundary.
+        var authorized = new[]
+        {
+            "VortexTrading.Application.Trading.Execution.OrderExecutionWorkflow", // TASK 0.42, ADR-034
+            "VortexTrading.Application.Trading.Execution.ExecutionCoordinator",   // TASK 3.0, ADR-037
+            "VortexTrading.Application.Trading.Execution.IApplicationClock",      // TASK 3.0, ADR-037
+            "VortexTrading.Application.Trading.Execution.IPaperMarketObserver"    // TASK 3.0, ADR-037
+        };
+
+        Assert.Equal(
+            BoundaryTypes().Select(type => type.FullName).Concat(authorized).OrderBy(name => name).ToArray(),
+            types.Select(type => type.FullName).ToArray());
     }
 
     [Fact]

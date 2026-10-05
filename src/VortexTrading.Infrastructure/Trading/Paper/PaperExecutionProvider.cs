@@ -14,13 +14,14 @@ namespace VortexTrading.Infrastructure.Trading.Paper;
 /// Implements <see cref="IExecutionProvider"/> without a clock, randomness or external system. Every
 /// time value is supplied by the caller and every price comes from an observation, so identical
 /// inputs always produce identical reports. Matching rules and their documented limits are in
-/// ADR-036; the workflow that consumes these reports is the caller's responsibility (ADR-034).
+/// ADR-036.
 /// <para>
-/// The provider never reads <see cref="ReadReportsAsync"/> itself and is not thread-safe: one
-/// execution scope owns one provider and one logical report consumer.
+/// This provider does not run a report consumer. It publishes to <see cref="Reports"/>, a buffered
+/// channel whose single reader is the execution coordinator, and that consumer takes ownership before
+/// any command is issued. The provider is not thread-safe: one execution scope owns one provider.
 /// </para>
 /// </remarks>
-public sealed class PaperExecutionProvider : IExecutionProvider, IDisposable
+public sealed class PaperExecutionProvider : IExecutionProvider, IPaperMarketObserver, IDisposable
 {
     private const string DefaultProviderKey = "paper";
 
@@ -52,7 +53,16 @@ public sealed class PaperExecutionProvider : IExecutionProvider, IDisposable
 
     public string ProviderKey { get; }
 
-    /// <summary>Orders still eligible to fill. Exposed for operational inspection during tests.</summary>
+    /// <summary>Instrument this provider matches. One provider owns exactly one instrument.</summary>
+    public InstrumentId InstrumentId => _instrumentId;
+
+    /// <summary>
+    /// Buffered stream of normalized facts. Its single logical consumer is the execution coordinator,
+    /// which must own it before the first command (ADR-034, ADR-036).
+    /// </summary>
+    public ChannelReader<ExecutionReport> Reports => _reports.Reader;
+
+    /// <summary>Orders still eligible to fill. Exposed for operational inspection.</summary>
     public int RestingOrderCount => _book.Count;
 
     /// <summary>Publishes one market observation and matches every resting order against it.</summary>
@@ -69,7 +79,7 @@ public sealed class PaperExecutionProvider : IExecutionProvider, IDisposable
         if (observation.InstrumentId != _instrumentId)
         {
             throw new ArgumentException(
-                $"Observation targets a different instrument than this provider is configured for.",
+                "Observation targets a different instrument than this provider is configured for.",
                 nameof(observation));
         }
 
@@ -117,7 +127,7 @@ public sealed class PaperExecutionProvider : IExecutionProvider, IDisposable
         var state = new OrderState(submission, submittedAt);
         _book.Add(state.OrderId, state);
 
-        // Accepted is available before any fill, so the consumer never sees a fill for an order whose
+        // Accepted is published before any fill, so the consumer never sees a fill for an order whose
         // acceptance it has not received through this stream.
         Publish(ExecutionReport.FromAccepted(state.OrderId, submittedAt));
         Match();
@@ -145,6 +155,10 @@ public sealed class PaperExecutionProvider : IExecutionProvider, IDisposable
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Provided for contract completeness only. This implementation is consumed through
+    /// <see cref="Reports"/>; reading it here would create a second consumer and drop facts.
+    /// </summary>
     public async IAsyncEnumerable<ExecutionReport> ReadReportsAsync(
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
@@ -157,7 +171,7 @@ public sealed class PaperExecutionProvider : IExecutionProvider, IDisposable
         }
     }
 
-    /// <summary>Completes the report stream so a consumer can observe shutdown.</summary>
+    /// <summary>Completes the report stream so the consumer can observe shutdown.</summary>
     public void Complete() => _reports.Writer.TryComplete();
 
     public void Dispose()
@@ -185,11 +199,6 @@ public sealed class PaperExecutionProvider : IExecutionProvider, IDisposable
             if (_remainingVolume <= 0m || fills >= MaximumFillsPerMatch)
             {
                 return;
-            }
-
-            if (!_book.ContainsKey(state.OrderId))
-            {
-                continue;
             }
 
             if (!TryResolveFillPrice(state, observation, out var fillPrice))
