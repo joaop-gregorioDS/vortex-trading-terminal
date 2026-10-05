@@ -60,10 +60,12 @@ public sealed class SimulatedMarketFeed : BackgroundService
     {
         var interval = Math.Max(100, _options.TickIntervalMilliseconds);
         var volume = _options.TickVolume > 0 ? _options.TickVolume : 250m;
+        var step = TimeSpan.FromMinutes(Math.Max(1, _options.SimulatedMinutesPerTick));
         var index = 0;
+        var cycle = 0;
         var simulated = new DateTimeOffset(2026, 10, 1, 10, 0, 0, TimeSpan.Zero);
 
-        _logger.LogInformation("Simulated market feed started with {TickCount} ticks every {Interval} ms.",
+        _logger.LogInformation("Simulated market feed started with {TickCount} prices per cycle every {Interval} ms.",
             _prices.Count, interval);
 
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(interval));
@@ -71,17 +73,22 @@ public sealed class SimulatedMarketFeed : BackgroundService
         {
             if (index >= _prices.Count)
             {
-                // The generated series is finite. Continuing past its end would require inventing
-                // prices, so the feed stops and says so instead of continuing with fabricated data.
-                _logger.LogInformation("Simulated market feed exhausted its {TickCount} generated prices.",
-                    _prices.Count);
-                return;
+                // The generated series is finite, and stopping at its end made the feed's host shut
+                // down: a completed BackgroundService lets the process exit, so the hosted terminal
+                // died a few minutes after starting and stopped serving HTTP. The series now repeats,
+                // and each cycle advances the simulated clock by a full pass so time never moves
+                // backwards and previously recorded orders and fills stay in the past.
+                cycle++;
+                index = 0;
+                simulated = simulated.AddTicks(step.Ticks * _prices.Count);
+                _logger.LogInformation("Simulated market feed completed cycle {Cycle}; the price series repeats.",
+                    cycle);
             }
 
             var price = _prices[index];
             _session.Publish(new UtcInstant(simulated), price, volume);
             index++;
-            simulated = simulated.AddMinutes(Math.Max(1, _options.SimulatedMinutesPerTick));
+            simulated = simulated.Add(step);
         }
     }
 }

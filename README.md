@@ -31,7 +31,7 @@ A visão de produto é um **app web** de operação em ambiente **simulado**: Pa
 | Indicadores | SMA, EMA, MACD, RSI, ATR, Stochastic, Bollinger Bands, VWAP, ADX e OBV com consumo em lote e runtime causal em replay |
 | Charts | Endpoint `POST /api/chart-snapshots` (somente Development) e página inicial com candles de um minuto |
 | Persistência | `Order` e `OrderFill` em PostgreSQL, schema `trading`, valores exatos como `numeric` sem precisão declarada, enums por nome e primeira migration aplicada |
-| Infraestrutura | Health checks `live` e `ready`; PostgreSQL e Redis no Compose local; imagens Linux não-root e composição de produção em `deploy/` |
+| Infraestrutura | Health checks `live` e `ready`; PostgreSQL e Redis no Compose local; imagens Linux não-root, serviço de migrations e composição de produção validada em `deploy/` |
 
 Ainda **não** implementados: Risk, Backtesting, Strategy Lab, Algo Trading, autenticação, recuperação de execução em voo e observabilidade.
 
@@ -103,7 +103,7 @@ A connection string local fica em User Secrets (`ConnectionStrings:PostgreSQL`);
 3. Dados simulados/autorizados, visualização e Paper Trading. **Concluído:** dados, visualização, persistência de ordens e Paper Exchange.
 4. Portfolio, Risk e indicadores centrais. Indicadores e Portfolio concluídos; Risk pendente.
 5. Replay, backtesting, Strategy Lab e runtime de estratégias. Replay concluído; backtesting, Strategy Lab e runtime pendentes.
-6. Observabilidade, automação de validação e deploy. CI e artefatos de deploy concluídos; observabilidade pendente.
+6. Observabilidade, automação de validação e deploy. CI, artefatos e deploy validados em containers; observabilidade pendente.
 
 ## Escopo e referências
 

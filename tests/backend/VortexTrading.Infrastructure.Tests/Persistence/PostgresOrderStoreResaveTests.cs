@@ -67,6 +67,46 @@ public sealed class PostgresOrderStoreResaveTests(PersistenceTestFixture fixture
         Assert.Equal(1, await context.Orders.CountAsync(stored => stored.Id == order.Id, Token));
     }
 
+    [Fact]
+    public async Task TheSameAggregateTwiceInOneCallIsNotInsertedTwice()
+    {
+        var factory = fixture.CreateContextFactory();
+        var store = new PostgresOrderStore(factory);
+
+        var order = Order.CreateMarket(OrderId.From(Guid.NewGuid()), fixture.TestInstrument, OrderSide.Buy,
+            new Quantity(3m), TimeInForce.GTC, Start);
+
+        // Defensive: the scope passes a snapshot of its book, which cannot repeat an id, but a repeated
+        // entry must not collide with itself if that collection ever changes shape.
+        await store.SaveAsync([order, order], Token);
+
+        await using var context = factory.CreateDbContext();
+        Assert.Equal(1, await context.Orders.CountAsync(stored => stored.Id == order.Id, Token));
+    }
+
+    [Fact]
+    public async Task SavingAnOrderWithoutAFillThenWithOneKeepsOneRowAndAddsTheFill()
+    {
+        var factory = fixture.CreateContextFactory();
+        var store = new PostgresOrderStore(factory);
+
+        var order = Order.CreateMarket(OrderId.From(Guid.NewGuid()), fixture.TestInstrument, OrderSide.Buy,
+            new Quantity(5m), TimeInForce.GTC, Start);
+        await store.SaveAsync([order], Token);
+
+        order.Accept(Start);
+        order.ApplyFill(new OrderFill(ExecutionId.From(Guid.NewGuid()), order.Id,
+            new Quantity(5m), new Price(100m), Start), Start);
+
+        // This is the shape that collided in production: the same instance saved again after gaining a
+        // fill. It must update the order and insert the fill, never reinsert the order.
+        await store.SaveAsync([order], Token);
+
+        await using var context = factory.CreateDbContext();
+        Assert.Equal(1, await context.Orders.CountAsync(stored => stored.Id == order.Id, Token));
+        Assert.Equal(1, await context.OrderFills.CountAsync(fill => fill.OrderId == order.Id, Token));
+    }
+
     private static UtcInstant Start { get; } = new(new DateTimeOffset(2026, 10, 13, 10, 0, 0, TimeSpan.Zero));
 
     private static UtcInstant Minutes(int offset) => new(Start.Value.AddMinutes(offset));

@@ -37,3 +37,18 @@ ENV ASPNETCORE_HTTP_PORTS=8080 \
 EXPOSE 8080
 
 ENTRYPOINT ["dotnet", "VortexTrading.Api.dll"]
+
+# Migration artifact, built only when explicitly targeted.
+#
+# The persistence design forbids applying migrations inside the API's startup, so schema evolution
+# needs its own runner. The runtime image has no SDK and therefore no EF tooling, so this stage keeps
+# the SDK and restores the pinned local tool. compose runs it as a one-shot service before the API.
+FROM build AS migrations
+WORKDIR /source
+ENV PATH="${PATH}:/root/.dotnet/tools" \
+    ASPNETCORE_ENVIRONMENT=Production
+
+ENTRYPOINT ["dotnet", "ef", "database", "update", \
+    "--project", "src/VortexTrading.Infrastructure", \
+    "--startup-project", "src/VortexTrading.Api", \
+    "--no-build"]

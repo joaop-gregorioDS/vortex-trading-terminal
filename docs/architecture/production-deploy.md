@@ -109,3 +109,38 @@ não que o app parou de funcionar.
 
 Essas lacunas são decisões pendentes, não detalhes de configuração, e estão registradas nos ADRs
 correspondentes.
+
+
+## Migrations e grafico em Production
+
+Duas coisas mudaram depois da primeira validacao real da stack, e ambas eram falhas que so apareciam
+com os containers no ar.
+
+**Migrations.** A API nao aplica migrations no startup, porque a fundacao de persistencia proibe isso,
+e a imagem de runtime nao tem SDK nem ferramenta EF. O `Dockerfile.api` tem um estagio `migrations`
+que mantem o SDK e restaura a ferramenta pinada, e o Compose o executa como servico de execucao unica
+antes da API, exigindo sucesso. Sem isso o schema nao existia, e a primeira submissao de ordem
+respondia 500 com `relation "trading.orders" does not exist`.
+
+O alvo de build e **explicito** (`target: runtime`). Um `build` sem alvo pega o ultimo estagio do
+arquivo, entao adicionar o estagio de migrations depois do runtime fez o servico `api` executar o
+entrypoint de migrations e sair imediatamente — o container entrava em loop de restart.
+
+**Grafico.** O endpoint de demonstracao e registrado apenas em Development, entao a pagina hospedada
+mostrava o estado de falha no lugar do grafico: um terminal sem a vitrine visual. A sessao agora
+guarda as observacoes que publicou e `GET /api/chart` desenha o historico a partir delas, em todos os
+ambientes. Cada observacao vira um candle com o preco exato que a sessao usou para negociar, e nao ha
+open/high/low fabricado: os quatro valores sao o preco observado, o que declara o limite em vez de
+inventar um range.
+
+**Concorrencia de escrita.** A gravacao de ordens lia as chaves existentes e decidia inserir ou
+atualizar. Como o escopo adiciona a ordem ao seu livro em memoria antes de a gravacao terminar, dois
+saves concorrentes podiam concluir que a mesma ordem era nova, e o perdedor morria na chave primaria —
+a primeira submissao falhava de forma reproduzivel. A gravacao agora toma um lock de sessao do
+PostgreSQL (`pg_advisory_lock`) e faz leitura, decisao e escrita atomicamente em relacao aos outros
+escritores do schema.
+
+**Durabilidade.** Verificada na stack completa: reiniciar o container da API preserva ordens e
+posicoes. Um reinicio, porem, nao recupera uma ordem que estava viva no momento da queda — ela volta
+visivel e sem poder ser comandada, porque o workflow exige o estado `Created` e recuperar execucao em
+voo e decisao pendente (ADR-040).

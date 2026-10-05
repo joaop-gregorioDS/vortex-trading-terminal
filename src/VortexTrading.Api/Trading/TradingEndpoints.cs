@@ -1,4 +1,5 @@
 using System.Text.Json;
+using VortexTrading.Api.Charts;
 using VortexTrading.Domain.Common;
 using VortexTrading.Domain.Portfolio;
 using VortexTrading.Domain.Trading;
@@ -21,6 +22,9 @@ public static class TradingEndpoints
 {
     /// <summary>Starting cash reported for the simulated account.</summary>
     public const decimal StartingCash = 100000m;
+
+    /// <summary>Most candles the live chart returns.</summary>
+    public const int MaximumChartBars = 200;
 
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
     {
@@ -57,6 +61,16 @@ public static class TradingEndpoints
                     ? Results.Json(TradingMapping.ToResponse(order), Options)
                     : NotFound();
             }));
+
+        app.MapGet("/api/chart", (PaperTradingSession session) =>
+        {
+            // Registered in every environment, unlike the demonstration fixture, because this is the
+            // session's own market and the hosted terminal has no other chart source.
+            var snapshot = LiveChartSnapshot.Build(session.Observations, MaximumChartBars);
+            return snapshot is null
+                ? Results.Json(new { status = "empty" }, Options)
+                : Results.Json(ChartSnapshotMapping.ToResponse(snapshot), Options);
+        });
 
         app.MapGet("/api/portfolio", (PaperTradingSession session) => Results.Json(
             TradingMapping.ToResponse(session.Portfolio(), PaperTradingSession.InstrumentId,

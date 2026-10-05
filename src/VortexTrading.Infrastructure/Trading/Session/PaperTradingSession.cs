@@ -30,10 +30,14 @@ public sealed class PaperTradingSession : IDisposable
     /// <summary>Instrument traded by the simulated session.</summary>
     public static InstrumentId InstrumentId => DevelopmentCandleDataset.InstrumentId;
 
+    /// <summary>How many observations are retained for charting.</summary>
+    public const int MaximumObservations = 300;
+
     private readonly PaperExecutionProvider _provider;
     private readonly SimulationClock _clock;
     private readonly IOrderStore? _store;
     private readonly ILogger<PaperTradingSession>? _logger;
+    private readonly List<PriceObservation> _observations = [];
     private readonly object _gate = new();
     private readonly Lazy<int> _restoredOrders;
 
@@ -118,8 +122,34 @@ public sealed class PaperTradingSession : IDisposable
         {
             _clock.AdvanceTo(eventTime);
             LastPrice = new Price(referencePrice);
+            _observations.Add(new PriceObservation(eventTime, referencePrice, volume));
+
+            // Bounded on purpose: the feed is finite today, but an unbounded list in a singleton would
+            // grow for the life of the process if a longer feed were ever introduced.
+            if (_observations.Count > MaximumObservations)
+            {
+                _observations.RemoveRange(0, _observations.Count - MaximumObservations);
+            }
+
             Coordinator.Observe(new PaperMarketObservation(eventTime, InstrumentId,
                 LastPrice, new Quantity(volume)));
+        }
+    }
+
+    /// <summary>Recent observations this session published, oldest first.</summary>
+    /// <remarks>
+    /// A bounded history of what the session actually traded against. The chart needs a price series,
+    /// and the demonstration fixture does not exist outside Development, so without this the hosted
+    /// terminal would have a market panel and no chart at all.
+    /// </remarks>
+    public IReadOnlyList<PriceObservation> Observations
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _observations.ToArray();
+            }
         }
     }
 

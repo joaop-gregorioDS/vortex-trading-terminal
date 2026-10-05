@@ -46,7 +46,36 @@ public sealed class PostgresOrderStore : IOrderStore
             return;
         }
 
+        // A session-level advisory lock serializes writers across connections. Reading the keys once
+        // inside a transaction was not enough: the execution scope adds an order to its in-memory book
+        // before this call awaits, so two saves could both decide an order was new and insert it, and
+        // the loser died on the primary key. The advisory lock makes the read-decide-write sequence
+        // atomic with respect to other writers of this schema, which is the guarantee the previous
+        // version only appeared to have.
         await using var context = await _contexts.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await context.Database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        // 4242 is an arbitrary but fixed key that belongs to this store alone.
+        await context.Database.ExecuteSqlRawAsync(
+            "SELECT pg_advisory_lock(4242)", cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            await WriteAsync(context, orders, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            await context.Database.ExecuteSqlRawAsync(
+                "SELECT pg_advisory_unlock(4242)", cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task WriteAsync(VortexTradingDbContext context, IReadOnlyCollection<Order> orders,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await context.Database
+            .BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
 
         var orderIds = orders.Select(order => order.Id).ToArray();
         var knownOrders = (await context.Orders
@@ -64,19 +93,31 @@ public sealed class PostgresOrderStore : IOrderStore
                 .ConfigureAwait(false))
             .ToHashSet();
 
+        // Entities this context already tracks count as present too, so an id repeated within one call
+        // cannot collide with itself.
+        var trackedOrders = context.ChangeTracker.Entries<Order>()
+            .Select(entry => entry.Entity.Id)
+            .ToHashSet();
+        var trackedFills = context.ChangeTracker.Entries<OrderFill>()
+            .Select(entry => entry.Entity.ExecutionId)
+            .ToHashSet();
+
         foreach (var order in orders)
         {
-            var isKnown = knownOrders.Contains(order.Id);
+            var entry = context.ChangeTracker.Entries<Order>().FirstOrDefault(candidate => candidate.Entity.Id == order.Id);
+            if (entry is null && knownOrders.Contains(order.Id))
+            {
+                entry = context.Attach(order);
+            }
 
-            if (isKnown)
+            if (entry is not null)
             {
                 // The lifecycle columns are the only ones that can change after creation. Production
                 // identity and the quantity are immutable, and assigning the incoming instance to the
                 // tracked entry is not possible because the domain exposes no setters.
-                var entry = context.Attach(order);
-                entry.Property(stored => stored.Status).IsModified = true;
-                entry.Property(stored => stored.LastUpdatedAt).IsModified = true;
-                entry.Property(stored => stored.RejectionReason).IsModified = true;
+                entry.Property(nameof(Order.Status)).IsModified = true;
+                entry.Property(nameof(Order.LastUpdatedAt)).IsModified = true;
+                entry.Property(nameof(Order.RejectionReason)).IsModified = true;
             }
             else
             {
@@ -86,13 +127,15 @@ public sealed class PostgresOrderStore : IOrderStore
             // Fills are handled the same way whether the order already existed or not: a fill whose
             // execution identity is already stored needs no write, and a new one must be inserted.
             // Skipping this for a known order silently dropped every subsequent partial fill.
-            foreach (var fill in order.Fills.Where(fill => !knownFills.Contains(fill.ExecutionId)))
+            foreach (var fill in order.Fills.Where(fill =>
+                         !knownFills.Contains(fill.ExecutionId) && !trackedFills.Contains(fill.ExecutionId)))
             {
                 context.OrderFills.Add(fill);
             }
         }
 
         await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Order>> LoadAsync(CancellationToken cancellationToken = default)
