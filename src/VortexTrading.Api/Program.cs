@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.HttpLogging;
 using Microsoft.Extensions.Options;
 using VortexTrading.Api.Configuration;
 using VortexTrading.Api.Charts;
+using VortexTrading.Api.Trading;
 using VortexTrading.Application;
 using VortexTrading.Infrastructure;
 using VortexTrading.Infrastructure.MarketData.Development;
@@ -13,7 +14,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 if (builder.Environment.IsDevelopment())
+{
     builder.Services.AddDevelopmentHistoricalCharts();
+    builder.Services.AddPaperTradingSession(builder.Configuration);
+}
 
 builder.Services
     .AddOptions<VortexTradingOptions>()
@@ -50,7 +54,10 @@ app.UseExceptionHandler(new ExceptionHandlerOptions
 });
 app.UseStatusCodePages();
 if (app.Environment.IsDevelopment())
+{
     app.MapHistoricalChartSnapshots();
+    app.MapTradingEndpoints();
+}
 
 app.MapHealthChecks("/health")
     .WithMetadata(new HttpMethodMetadata([HttpMethods.Get]));
