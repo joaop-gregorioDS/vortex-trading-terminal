@@ -62,3 +62,17 @@ public sealed record MarketResponse(
     string? LastPrice,
     string? SimulatedTime,
     int RestingOrderCount);
+
+/// <summary>Operational facts about the running session, for monitoring without reading the log.</summary>
+public sealed record StatusResponse(
+    string InstrumentId,
+    string? SimulatedTime,
+    string? LastPrice,
+    int RestingOrderCount,
+    int OrderCount,
+    int FilledOrderCount,
+    int OpenOrderCount,
+    int RejectedOrderCount,
+    int FillCount,
+    string TradedQuantity,
+    int RestoredOrderCount);

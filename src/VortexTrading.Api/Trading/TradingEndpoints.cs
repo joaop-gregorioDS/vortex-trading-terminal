@@ -44,6 +44,29 @@ public static class TradingEndpoints
                 session.CurrentTime, session.RestingOrderCount), Options);
         });
 
+        app.MapGet("/api/status", (PaperTradingSession session) =>
+        {
+            // Operational facts in one place, so an operator does not have to read the log to answer
+            // "is it alive and is it working". Registered in every environment.
+            session.EnsureRecovered();
+            var orders = session.Coordinator.Orders;
+            var fills = orders.SelectMany(order => order.Fills).ToArray();
+
+            return Results.Json(new StatusResponse(
+                InstrumentId: PaperTradingSession.InstrumentId.ToString(),
+                SimulatedTime: session.CurrentTime is null ? null : TradingMapping.Instant(session.CurrentTime),
+                LastPrice: session.LastPrice is null ? null : TradingMapping.Exact(session.LastPrice.Value),
+                RestingOrderCount: session.RestingOrderCount,
+                OrderCount: orders.Count,
+                FilledOrderCount: orders.Count(order => order.Status == OrderStatus.Filled),
+                OpenOrderCount: orders.Count(order => order.Status
+                    is OrderStatus.Created or OrderStatus.Accepted or OrderStatus.PartiallyFilled),
+                RejectedOrderCount: orders.Count(order => order.Status == OrderStatus.Rejected),
+                FillCount: fills.Length,
+                TradedQuantity: TradingMapping.Exact(fills.Aggregate(0m, (sum, fill) => sum + fill.Quantity.Value)),
+                RestoredOrderCount: session.RestoredOrderCount), Options);
+        });
+
         app.MapGet("/api/orders", (PaperTradingSession session) =>
         {
             // Recovery is explicit on every read of owned state. Leaving it implicit made the list

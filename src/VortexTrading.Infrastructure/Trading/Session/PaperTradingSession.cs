@@ -41,13 +41,15 @@ public sealed class PaperTradingSession : IDisposable
     private readonly object _gate = new();
     private readonly Lazy<int> _restoredOrders;
 
-    public PaperTradingSession(IOrderStore? store = null, ILogger<PaperTradingSession>? logger = null)
+    public PaperTradingSession(IOrderStore? store = null, ILogger<PaperTradingSession>? logger = null,
+        ILogger<ExecutionCoordinator>? coordinatorLogger = null)
     {
         _store = store;
         _logger = logger;
         _clock = new SimulationClock();
         _provider = new PaperExecutionProvider(InstrumentId);
-        Coordinator = new ExecutionCoordinator(InstrumentId, _provider, _clock, _provider.Reports, store);
+        Coordinator = new ExecutionCoordinator(InstrumentId, _provider, _clock, _provider.Reports, store,
+            coordinatorLogger);
 
         // Restoration is deferred and fault tolerant on purpose. The persistence foundation states that
         // a valid configuration starts even when the database is unavailable and that readiness reports

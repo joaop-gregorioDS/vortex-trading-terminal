@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using Microsoft.Extensions.Logging;
 using VortexTrading.Application.Trading.Paper;
 using VortexTrading.Domain.Common.Time;
 using VortexTrading.Domain.Markets;
@@ -33,9 +34,11 @@ public sealed class ExecutionCoordinator
     private readonly IApplicationClock _clock;
     private readonly ChannelReader<ExecutionReport> _reports;
     private readonly IOrderStore? _store;
+    private readonly ILogger<ExecutionCoordinator>? _logger;
 
     public ExecutionCoordinator(InstrumentId? instrumentId, IExecutionProvider? provider,
-        IApplicationClock? clock, ChannelReader<ExecutionReport>? reports, IOrderStore? store = null)
+        IApplicationClock? clock, ChannelReader<ExecutionReport>? reports, IOrderStore? store = null,
+        ILogger<ExecutionCoordinator>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(instrumentId);
         ArgumentNullException.ThrowIfNull(provider);
@@ -47,6 +50,7 @@ public sealed class ExecutionCoordinator
         _clock = clock;
         _reports = reports;
         _store = store;
+        _logger = logger;
     }
 
     /// <summary>Instrument owned by this scope. One scope owns exactly one instrument.</summary>
@@ -129,12 +133,20 @@ public sealed class ExecutionCoordinator
             await workflow.SubmitOrderAsync(at, cancellationToken).ConfigureAwait(false);
             DrainReports(at);
             await PersistAsync(cancellationToken).ConfigureAwait(false);
+
+            _logger?.LogInformation(
+                "Order submitted {OrderId} {Side} {Type} {Quantity} {LimitPrice} at {SubmittedAt}",
+                order.Id.Value, order.Side, order.Type, order.Quantity.Value,
+                order.LimitPrice?.Value, at.Value);
         }
-        catch
+        catch (Exception error)
         {
             // Never leave a half-owned order behind; the caller decides what to do with the order.
             _workflows.Remove(order.Id);
             _orders.Remove(order.Id);
+
+            _logger?.LogWarning(error, "Order submission failed {OrderId} at {SubmittedAt}",
+                order.Id.Value, at.Value);
             throw;
         }
     }
@@ -151,6 +163,9 @@ public sealed class ExecutionCoordinator
         await workflow.RequestCancellationAsync(at, cancellationToken).ConfigureAwait(false);
         DrainReports(at);
         await PersistAsync(cancellationToken).ConfigureAwait(false);
+
+        _logger?.LogInformation("Cancellation requested {OrderId} at {RequestedAt}",
+            orderId.Value, at.Value);
     }
 
     /// <summary>Publishes a market observation and applies every fact it produces.</summary>
@@ -187,7 +202,6 @@ public sealed class ExecutionCoordinator
             PersistAsync(CancellationToken.None).GetAwaiter().GetResult();
         }
     }
-
     /// <summary>Registers an order that was loaded from durable storage, without resubmitting it.</summary>
     /// <remarks>
     /// Used on startup so the scope owns what it previously persisted and its positions can be derived.
@@ -242,8 +256,20 @@ public sealed class ExecutionCoordinator
                     "Execution report targets an order that is not owned by this execution scope.");
             }
 
-            workflow.ApplyReport(report, at);
+            var changed = workflow.ApplyReport(report, at);
             applied++;
+
+            // One structured event per applied fact, emitted here because every fact passes through
+            // this loop. Values are named fields rather than interpolated text so a log query can group
+            // by order, kind or price without parsing prose.
+            if (changed && _logger is not null)
+            {
+                var fill = report.Fill;
+                _logger.LogInformation(
+                    "Execution fact applied {Kind} {OrderId} {Quantity} {Price} at {AppliedAt}",
+                    report.Kind, report.OrderId.Value,
+                    fill?.Quantity.Value, fill?.Price.Value, at.Value);
+            }
         }
 
         return applied;

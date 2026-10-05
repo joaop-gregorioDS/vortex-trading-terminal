@@ -8,8 +8,8 @@ Projeto de terminal financeiro web original para estudar engenharia de software,
 
 ## Estágio atual
 
-<!-- ESTAGIO-ATUAL: TASK 7.0 -->
-**TASK 7.0** — o terminal passa a ser operável pela tela: mesa de operação com envio e cancelamento de ordem, execução acompanhada, posição e P&L, falando com a API na mesma origem (ADR-041), sobre a API durável das TASKs anteriores (ADR-036 a ADR-040). Anteriormente: persistência do agregado `Order` (ADR-035) e o workflow de execução (ADR-032 a ADR-034).
+<!-- ESTAGIO-ATUAL: TASK 8.0 -->
+**TASK 8.0** — visibilidade operacional: eventos de negócio estruturados por fato aplicado, SQL do EF Core fora do nível informativo e `GET /api/status` com o estado da sessão (ADR-042). Sobre o terminal operável (ADR-041) e as camadas anteriores (ADR-036 a ADR-040). Anteriormente: persistência do agregado `Order` (ADR-035) e o workflow de execução (ADR-032 a ADR-034).
 
 A visão de produto é um **app web** de operação em ambiente **simulado**: Paper Trading de ponta a ponta, hospedado futuramente na VPS da Vortex Software. O frontend hoje apresenta o histórico de demonstração; a operação chega nas etapas seguintes do roadmap.
 
@@ -26,6 +26,7 @@ A visão de produto é um **app web** de operação em ambiente **simulado**: Pa
 | API de trading | `GET /api/trading/market`, `POST/GET /api/orders`, `POST /api/orders/{id}/cancel` e `GET /api/portfolio`, somente em Development |
 | Sessão simulada | `PaperTradingSession` (singleton) e feed determinístico de um tick por segundo; valores exatos trafegam como string decimal |
 | Mesa de operação | Painel de ordens, carteira e posição no Next.js, com envio e cancelamento; cliente não faz aritmética de dinheiro e a simulação é rotulada na tela |
+| Operação | Eventos de negócio estruturados por fato aplicado e `GET /api/status` com tempo simulado, preço, ordens por situação, fills e quantidade negociada |
 | Market Data | Porta de provider, orquestrador, provider de simulação determinístico e provider histórico de replay |
 | Replay | `ReplaySession`, `ReplayTimeline`, `CausalReplaySession` com semântica de disponibilidade temporal, sem uso de dados futuros |
 | Indicadores | SMA, EMA, MACD, RSI, ATR, Stochastic, Bollinger Bands, VWAP, ADX e OBV com consumo em lote e runtime causal em replay |
@@ -33,7 +34,7 @@ A visão de produto é um **app web** de operação em ambiente **simulado**: Pa
 | Persistência | `Order` e `OrderFill` em PostgreSQL, schema `trading`, valores exatos como `numeric` sem precisão declarada, enums por nome e primeira migration aplicada |
 | Infraestrutura | Health checks `live` e `ready`; PostgreSQL e Redis no Compose local; imagens Linux não-root, serviço de migrations e composição de produção validada em `deploy/` |
 
-Ainda **não** implementados: Risk, Backtesting, Strategy Lab, Algo Trading, autenticação, recuperação de execução em voo e observabilidade.
+Ainda **não** implementados: Risk, Backtesting, Strategy Lab, Algo Trading, autenticação, recuperação de execução em voo, métricas e tracing distribuído.
 
 ## Arquitetura e stack
 
@@ -54,7 +55,7 @@ Infrastructure → Application + Domain
 Api            → Application + Infrastructure
 ```
 
-Consulte a [visão arquitetural](docs/architecture/overview.md) e os [ADRs](docs/adr/), atualmente 41 decisões aceitas.
+Consulte a [visão arquitetural](docs/architecture/overview.md) e os [ADRs](docs/adr/), atualmente 42 decisões aceitas.
 
 ## Validação
 
@@ -103,7 +104,7 @@ A connection string local fica em User Secrets (`ConnectionStrings:PostgreSQL`);
 3. Dados simulados/autorizados, visualização e Paper Trading. **Concluído:** dados, visualização, persistência de ordens e Paper Exchange.
 4. Portfolio, Risk e indicadores centrais. Indicadores e Portfolio concluídos; Risk pendente.
 5. Replay, backtesting, Strategy Lab e runtime de estratégias. Replay concluído; backtesting, Strategy Lab e runtime pendentes.
-6. Observabilidade, automação de validação e deploy. CI, artefatos e deploy validados em containers; observabilidade pendente.
+6. Observabilidade, automação de validação e deploy. CI, artefatos e deploy validados em containers; visibilidade operacional concluída, com métricas e tracing adiados por decisão registrada.
 
 ## Escopo e referências
 

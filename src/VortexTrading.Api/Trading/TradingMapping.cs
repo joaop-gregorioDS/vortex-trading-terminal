@@ -53,14 +53,14 @@ public static class TradingMapping
             null or "" or "gtc" => TimeInForce.GTC,
             _ => throw new TradingTransportException("Unsupported time in force.")
         };
-        var quantity = new Quantity(Decimal(request.Quantity, "quantity"));
+        var quantity = new Quantity(ParseDecimal(request.Quantity, "quantity"));
 
         return request.Type switch
         {
             "market" when request.LimitPrice is null or "" => Order.CreateMarket(
                 OrderId.From(Guid.NewGuid()), instrumentId, side, quantity, timeInForce, createdAt),
             "limit" => Order.CreateLimit(OrderId.From(Guid.NewGuid()), instrumentId, side, quantity,
-                new Price(Decimal(request.LimitPrice, "limit price")), timeInForce, createdAt),
+                new Price(ParseDecimal(request.LimitPrice, "limit price")), timeInForce, createdAt),
             "market" => throw new TradingTransportException("A market order must not carry a limit price."),
             _ => throw new TradingTransportException("Type must be 'market' or 'limit'.")
         };
@@ -84,11 +84,11 @@ public static class TradingMapping
             Decimal(order.FilledQuantity.Value),
             Decimal(order.RemainingQuantity.Value),
             order.RejectionReason?.ToString(),
-            Time(order.CreatedAt),
-            Time(order.LastUpdatedAt),
-            order.CompletedAt is null ? null : Time(order.CompletedAt),
+            Instant(order.CreatedAt),
+            Instant(order.LastUpdatedAt),
+            order.CompletedAt is null ? null : Instant(order.CompletedAt),
             order.Fills.Select(fill => new FillResponse(fill.ExecutionId.ToString(),
-                Decimal(fill.Quantity.Value), Decimal(fill.Price.Value), Time(fill.ExecutedAt))).ToArray());
+                Decimal(fill.Quantity.Value), Decimal(fill.Price.Value), Instant(fill.ExecutedAt))).ToArray());
     }
 
     public static PortfolioResponse ToResponse(Portfolio? portfolio, InstrumentId sessionInstrument,
@@ -117,7 +117,7 @@ public static class TradingMapping
                     ? position.TotalProfitAndLoss(mark)
                     : position.RealizedProfitAndLoss),
                 position.IsClosed,
-                position.UpdatedAt is null ? null : Time(position.UpdatedAt)))
+                position.UpdatedAt is null ? null : Instant(position.UpdatedAt)))
             .ToArray();
 
         return new PortfolioResponse(
@@ -134,7 +134,7 @@ public static class TradingMapping
         int restingOrderCount) => new(
         instrumentId.ToString(),
         lastPrice is null ? null : Decimal(lastPrice.Value),
-        time is null ? null : Time(time),
+        time is null ? null : Instant(time),
         restingOrderCount);
 
     public static Guid ParseOrderId(string? value) =>
@@ -142,16 +142,21 @@ public static class TradingMapping
             ? parsed
             : throw new TradingTransportException("A non-empty order id is required.");
 
-    private static decimal Decimal(string? value, string field) =>
+    private static decimal ParseDecimal(string? value, string field) =>
         decimal.TryParse(value, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
             CultureInfo.InvariantCulture, out var parsed)
             ? parsed
             : throw new TradingTransportException($"The {field} must be a decimal number.");
 
+    /// <summary>Formats an exact value as a decimal string for transport.</summary>
     private static string Decimal(decimal value) =>
         value.ToString("0.############################", CultureInfo.InvariantCulture);
 
-    private static string Time(UtcInstant instant) =>
+    /// <summary>Formats an exact value for transport, for callers outside this class.</summary>
+    public static string Exact(decimal value) => Decimal(value);
+
+    /// <summary>Formats an instant in UTC for transport.</summary>
+    public static string Instant(UtcInstant instant) =>
         instant.Value.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffffffZ", CultureInfo.InvariantCulture);
 
     private static string Status(OrderStatus status) => status switch
