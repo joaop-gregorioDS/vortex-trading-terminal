@@ -1,0 +1,39 @@
+# Build and run the ASP.NET Core API in a Linux container as a non-root user.
+# ADR-003 keeps the API as the composition root; this image ships only its published output.
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /source
+
+# Restore first, against the solution manifest, so the layer cache survives source edits.
+COPY global.json ./
+COPY .config/ ./.config/
+COPY VortexTrading.slnx ./
+COPY src/ ./src/
+COPY tests/ ./tests/
+RUN dotnet tool restore \
+    && dotnet restore VortexTrading.slnx
+
+# Publish the API only. The composition root needs Application and Infrastructure, which the
+# project reference graph already brings in.
+RUN dotnet publish src/VortexTrading.Api/VortexTrading.Api.csproj \
+    --configuration Release \
+    --no-restore \
+    --output /app
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+WORKDIR /app
+
+# The runtime image ships an unprivileged "app" user. Least privilege is a stated principle, and
+# nothing in the API needs to write to its own filesystem.
+USER app
+
+COPY --from=build --chown=app:app /app ./
+
+# 8080 is the port the .NET container images expect and the one compose publishes on loopback.
+ENV ASPNETCORE_HTTP_PORTS=8080 \
+    ASPNETCORE_ENVIRONMENT=Production \
+    DOTNET_EnableDiagnostics=0
+
+EXPOSE 8080
+
+ENTRYPOINT ["dotnet", "VortexTrading.Api.dll"]

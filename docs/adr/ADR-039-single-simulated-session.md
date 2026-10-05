@@ -46,19 +46,29 @@ em ordem de execução. Armazenar posições criaria uma segunda cópia de um es
 determinam, e as duas poderiam divergir. O custo é percorrer os fills a cada leitura, o que é a troca
 correta enquanto a sessão é pequena e em memória.
 
-**O feed é registrado apenas em Development.** Um feed de produção exige decisão sobre dados
-autorizados e sobre como um deploy compartilhado lida com usuários concorrentes; a sessão única finge
-resolver isso e não deve fingir.
+**A sessão é registrada em todos os ambientes; o chart de demonstração não.** A sessão é o produto,
+então existe em Development e em Production. O dataset de candles de demonstração é um fixture fixo e
+continua restrito a Development. Consequência aceita: em Production a sessão ainda não grava nem lê
+PostgreSQL, então reiniciar o container perde ordens e posições. Resolver isso exige decidir entre
+persistir ordens e fills (o modelo do ADR-035 já existe) ou persistir posições; a decisão está
+pendente e o deploy não deve ser apresentado como durável.
+
+**O feed é determinístico e finito, em todos os ambientes.** Um feed de produção com dados
+autorizados exige decisão sobre fornecedor, permissões e redistribuição, que o projeto não tem. O que
+existe é simulação declarada, e ela não deve ser apresentada como dado real.
 
 ## Consequences
 
-- O app funciona de ponta a ponta: mercado, ordens, cancelamento e portfólio.
+- O app funciona de ponta a ponta: mercado, ordens, cancelamento e portfólio, em qualquer ambiente.
 - O estado é perdido ao reiniciar o processo. O ADR-035 persistiu ordens e fills, mas a sessão ainda
-  não grava nem lê o banco; a reconstrução a partir da persistência é o próximo passo natural.
+  não grava nem lê o banco; ligar os dois é a pendência mais valiosa do projeto, e é ela que torna o
+  deploy durável.
 - Sessão única significa uma conta: dois usuários compartilhariam ordens e posições. Um produto
   multiusuário exige chave de conta em toda a fronteira, decisão não tomada aqui.
 - O `lock` serializa; com carga real ele viraria contenção, e um ator ou fila seria necessário.
 - `cash` é uma constante de sessão, não um saldo contábil: o domínio não modela ledger (ADR-038).
+- O feed para quando a série gerada termina. Um app hospedado deixa de receber preços depois disso
+  até o processo reiniciar, o que é aceitável para uma demonstração e inaceitável para uso contínuo.
 
 ## Alternatives
 

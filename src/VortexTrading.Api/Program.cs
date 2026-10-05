@@ -13,11 +13,13 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+
+// The simulated trading session is the product itself, so it is registered in every environment.
+// Only the demonstration chart dataset stays Development-only, because it is a fixed fixture rather
+// than a market.
+builder.Services.AddPaperTradingSession(builder.Configuration);
 if (builder.Environment.IsDevelopment())
-{
     builder.Services.AddDevelopmentHistoricalCharts();
-    builder.Services.AddPaperTradingSession(builder.Configuration);
-}
 
 builder.Services
     .AddOptions<VortexTradingOptions>()
@@ -54,10 +56,9 @@ app.UseExceptionHandler(new ExceptionHandlerOptions
 });
 app.UseStatusCodePages();
 if (app.Environment.IsDevelopment())
-{
     app.MapHistoricalChartSnapshots();
-    app.MapTradingEndpoints();
-}
+
+app.MapTradingEndpoints();
 
 app.MapHealthChecks("/health")
     .WithMetadata(new HttpMethodMetadata([HttpMethods.Get]));
