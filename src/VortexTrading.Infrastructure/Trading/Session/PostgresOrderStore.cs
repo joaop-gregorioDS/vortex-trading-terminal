@@ -11,6 +11,13 @@ namespace VortexTrading.Infrastructure.Trading.Session;
 /// is a singleton whose writes are serialized, and a DbContext is neither thread-safe nor meant to live
 /// for the process, so a per-call context is the shape that matches both facts.
 /// <para>
+/// The existing keys are read once per call, up front, and every row is then classified from that one
+/// snapshot. The previous version asked the database about each order individually and decided insert
+/// or update from the answer, which inserted an order twice whenever two saves overlapped: the second
+/// one looked before the first had committed and concluded the order was new. Reading the keys once
+/// removes that window and makes the call idempotent by construction.
+/// </para>
+/// <para>
 /// The aggregate is written as a wholesale save: an order and every fill it carries are inserted or
 /// updated, and nothing is deleted. Fills are immutable once created (ADR-032), so an update to an
 /// existing fill is not expected; the adapter conforms to the domain rather than assuming otherwise.
@@ -41,31 +48,45 @@ public sealed class PostgresOrderStore : IOrderStore
 
         await using var context = await _contexts.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 
+        var orderIds = orders.Select(order => order.Id).ToArray();
+        var knownOrders = (await context.Orders
+                .Where(stored => orderIds.Contains(stored.Id))
+                .Select(stored => stored.Id)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false))
+            .ToHashSet();
+
+        var executionIds = orders.SelectMany(order => order.Fills).Select(fill => fill.ExecutionId).ToArray();
+        var knownFills = (await context.OrderFills
+                .Where(stored => executionIds.Contains(stored.ExecutionId))
+                .Select(stored => stored.ExecutionId)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false))
+            .ToHashSet();
+
         foreach (var order in orders)
         {
-            var existing = await context.Orders
-                .Include(stored => stored.Fills)
-                .FirstOrDefaultAsync(stored => stored.Id == order.Id, cancellationToken)
-                .ConfigureAwait(false);
+            var isKnown = knownOrders.Contains(order.Id);
 
-            if (existing is null)
+            if (isKnown)
             {
-                // A new aggregate is inserted whole: EF already handles an order and its fills in one
-                // graph.
+                // The lifecycle columns are the only ones that can change after creation. Production
+                // identity and the quantity are immutable, and assigning the incoming instance to the
+                // tracked entry is not possible because the domain exposes no setters.
+                var entry = context.Attach(order);
+                entry.Property(stored => stored.Status).IsModified = true;
+                entry.Property(stored => stored.LastUpdatedAt).IsModified = true;
+                entry.Property(stored => stored.RejectionReason).IsModified = true;
+            }
+            else
+            {
                 context.Orders.Add(order);
-                continue;
             }
 
-            // An existing aggregate is updated field by field. Assigning the incoming instance to the
-            // tracked entry is not an option: the domain exposes no setters, so EF cannot copy the
-            // values, and detaching the tracked graph to attach a new one would risk exactly the
-            // duplicate-key failure this branch exists to avoid.
-            context.Entry(existing).Property(stored => stored.Status).CurrentValue = order.Status;
-            context.Entry(existing).Property(stored => stored.LastUpdatedAt).CurrentValue = order.LastUpdatedAt;
-            context.Entry(existing).Property(stored => stored.RejectionReason).CurrentValue = order.RejectionReason;
-
-            var known = existing.Fills.Select(fill => fill.ExecutionId).ToHashSet();
-            foreach (var fill in order.Fills.Where(fill => !known.Contains(fill.ExecutionId)))
+            // Fills are handled the same way whether the order already existed or not: a fill whose
+            // execution identity is already stored needs no write, and a new one must be inserted.
+            // Skipping this for a known order silently dropped every subsequent partial fill.
+            foreach (var fill in order.Fills.Where(fill => !knownFills.Contains(fill.ExecutionId)))
             {
                 context.OrderFills.Add(fill);
             }

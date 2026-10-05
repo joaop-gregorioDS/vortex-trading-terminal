@@ -43,6 +43,14 @@ escritos explicitamente; fills desconhecidos são inseridos.
 com essa combinação. Agora só o factory registra options, e o contexto scoped é derivado dele, o que
 preserva consumidores existentes e mantém uma única fonte de configuração.
 
+**As chaves existentes são lidas uma vez por chamada, não por ordem.** A primeira versão perguntava
+ao banco sobre cada ordem individualmente e decidia inserir ou atualizar a partir da resposta. Isso
+inseria a mesma ordem duas vezes sempre que dois saves se sobrepunham: o segundo consultava antes de o
+primeiro ter commitado e concluía que a ordem era nova. O sintoma foi uma violação de chave primária
+durante um save disparado pelo feed, que derrubou o host inteiro porque o padrão do host é parar
+quando um `BackgroundService` lança. Ler as chaves de uma vez fecha a janela e torna a chamada
+idempotente por construção.
+
 **Recuperação é preguiçosa e explícita, e nunca fatal.** Carregar no construtor tornaria uma queda de
 banco um processo que não sobe — o oposto do que a fundação de persistência definiu. A carga ocorre na
 primeira operação que precisa dela, e falha vira aviso: o app continua em memória e o readiness segue

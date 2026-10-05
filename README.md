@@ -8,8 +8,8 @@ Projeto de terminal financeiro web original para estudar engenharia de software,
 
 ## Estágio atual
 
-<!-- ESTAGIO-ATUAL: TASK 6.0 -->
-**TASK 6.0** — ordens e posições sobrevivem ao restart: gravação em PostgreSQL nos pontos de mutação e recuperação na primeira leitura (ADR-040), sobre a API e a sessão simulada das TASKs anteriores (ADR-036 a ADR-039). Anteriormente: persistência do agregado `Order` (ADR-035) e o workflow de execução (ADR-032 a ADR-034).
+<!-- ESTAGIO-ATUAL: TASK 7.0 -->
+**TASK 7.0** — o terminal passa a ser operável pela tela: mesa de operação com envio e cancelamento de ordem, execução acompanhada, posição e P&L, falando com a API na mesma origem (ADR-041), sobre a API durável das TASKs anteriores (ADR-036 a ADR-040). Anteriormente: persistência do agregado `Order` (ADR-035) e o workflow de execução (ADR-032 a ADR-034).
 
 A visão de produto é um **app web** de operação em ambiente **simulado**: Paper Trading de ponta a ponta, hospedado futuramente na VPS da Vortex Software. O frontend hoje apresenta o histórico de demonstração; a operação chega nas etapas seguintes do roadmap.
 
@@ -25,6 +25,7 @@ A visão de produto é um **app web** de operação em ambiente **simulado**: Pa
 | Portfólio | `ExactDecimal`, `Position` e `Portfolio`: custo médio, P&L realizado e não realizado exatos, sem escala universal |
 | API de trading | `GET /api/trading/market`, `POST/GET /api/orders`, `POST /api/orders/{id}/cancel` e `GET /api/portfolio`, somente em Development |
 | Sessão simulada | `PaperTradingSession` (singleton) e feed determinístico de um tick por segundo; valores exatos trafegam como string decimal |
+| Mesa de operação | Painel de ordens, carteira e posição no Next.js, com envio e cancelamento; cliente não faz aritmética de dinheiro e a simulação é rotulada na tela |
 | Market Data | Porta de provider, orquestrador, provider de simulação determinístico e provider histórico de replay |
 | Replay | `ReplaySession`, `ReplayTimeline`, `CausalReplaySession` com semântica de disponibilidade temporal, sem uso de dados futuros |
 | Indicadores | SMA, EMA, MACD, RSI, ATR, Stochastic, Bollinger Bands, VWAP, ADX e OBV com consumo em lote e runtime causal em replay |
@@ -32,7 +33,7 @@ A visão de produto é um **app web** de operação em ambiente **simulado**: Pa
 | Persistência | `Order` e `OrderFill` em PostgreSQL, schema `trading`, valores exatos como `numeric` sem precisão declarada, enums por nome e primeira migration aplicada |
 | Infraestrutura | Health checks `live` e `ready`; PostgreSQL e Redis no Compose local; imagens Linux não-root e composição de produção em `deploy/` |
 
-Ainda **não** implementados: Risk, Backtesting, Strategy Lab, Algo Trading, autenticação, frontend de operação, recuperação de execução em voo e observabilidade.
+Ainda **não** implementados: Risk, Backtesting, Strategy Lab, Algo Trading, autenticação, recuperação de execução em voo e observabilidade.
 
 ## Arquitetura e stack
 
@@ -53,7 +54,7 @@ Infrastructure → Application + Domain
 Api            → Application + Infrastructure
 ```
 
-Consulte a [visão arquitetural](docs/architecture/overview.md) e os [ADRs](docs/adr/), atualmente 40 decisões aceitas.
+Consulte a [visão arquitetural](docs/architecture/overview.md) e os [ADRs](docs/adr/), atualmente 41 decisões aceitas.
 
 ## Validação
 

@@ -73,8 +73,8 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Chart adapter checks
-        run: node --experimental-strip-types --test tests/charts-adapter.test.mjs
+      - name: Frontend checks
+        run: node --experimental-strip-types --test tests/*.test.mjs
 
       # The page fetches the API at request time behind connection(); the build must
       # never require a running backend.

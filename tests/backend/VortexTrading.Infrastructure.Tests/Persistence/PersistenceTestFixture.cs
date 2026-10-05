@@ -25,14 +25,15 @@ public sealed class PersistenceTestFixture : IAsyncLifetime
     public string? SkipReason { get; private set; }
 
     /// <summary>
-    /// Instrument reserved for persistence tests.
+    /// Instrument reserved for this fixture instance.
     /// </summary>
     /// <remarks>
-    /// Cleanup deletes only the rows for this instrument. An earlier version deleted every order and
-    /// fill in the schema on dispose, which silently wiped data written by a running API that shared
-    /// the same development database; tests must not destroy state they did not create.
+    /// Unique per instance so a fixture can never delete rows another fixture is still using, and
+    /// cleanup deletes only this instrument's rows. An earlier version deleted every order and fill in
+    /// the schema, which silently wiped data written by a running API sharing the same development
+    /// database.
     /// </remarks>
-    public InstrumentId TestInstrument { get; } = new(new Guid("99999999-9999-9999-9999-999999999999"));
+    public InstrumentId TestInstrument { get; } = new(Guid.NewGuid());
 
     public static string? ConnectionString() =>
         Environment.GetEnvironmentVariable("ConnectionStrings__PostgreSQL")
