@@ -35,12 +35,16 @@ public sealed class IExecutionProviderContractTests
     }
 
     [Fact]
-    public void ProductionNamespaceContainsExactlyTheSixAuthorizedTypes()
+    public void ProductionNamespaceContainsOnlyAuthorizedExecutionTypes()
     {
-        var types = BoundaryTypes();
-        Assert.Equal(new[] { "ExecutionProviderException", "ExecutionProviderFailureKind", "ExecutionReport",
-            "ExecutionReportKind", "IExecutionProvider", "OrderSubmission" },
-            types.Select(type => type.Name).Order().ToArray());
+        var types = typeof(IExecutionProvider).Assembly.GetTypes()
+            .Where(type => type.IsPublic && type.Namespace == typeof(IExecutionProvider).Namespace);
+
+        // TASK 0.41 authorizes this exact optional expansion; TASK 0.42 will implement it.
+        // Every other public type must match the six checkpointed boundary contracts.
+        Assert.Equal(BoundaryTypes().OrderBy(type => type.FullName).ToArray(),
+            types.Where(type => type.FullName != "VortexTrading.Application.Trading.Execution.OrderExecutionWorkflow")
+                .OrderBy(type => type.FullName).ToArray());
     }
 
     [Fact]
@@ -65,8 +69,15 @@ public sealed class IExecutionProviderContractTests
             || type.Namespace?.StartsWith("VortexTrading.Application.Charts", StringComparison.Ordinal) == true);
     }
 
-    private static Type[] BoundaryTypes() => typeof(IExecutionProvider).Assembly.GetTypes()
-        .Where(type => type.IsPublic && type.Namespace == typeof(IExecutionProvider).Namespace).ToArray();
+    private static Type[] BoundaryTypes() =>
+    [
+        typeof(IExecutionProvider),
+        typeof(OrderSubmission),
+        typeof(ExecutionReport),
+        typeof(ExecutionReportKind),
+        typeof(ExecutionProviderFailureKind),
+        typeof(ExecutionProviderException)
+    ];
 
     private static IEnumerable<Type> PublicSignatureTypes(Type type)
     {
