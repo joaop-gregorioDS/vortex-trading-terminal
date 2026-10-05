@@ -6,6 +6,7 @@
     <Project Path="src/VortexTrading.Infrastructure/VortexTrading.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/backend/">
+    <Project Path="tests/backend/VortexTrading.Api.Tests/VortexTrading.Api.Tests.csproj" />
     <Project Path="tests/backend/VortexTrading.Application.Tests/VortexTrading.Application.Tests.csproj" />
     <Project Path="tests/backend/VortexTrading.Domain.Tests/VortexTrading.Domain.Tests.csproj" />
     <Project Path="tests/backend/VortexTrading.Infrastructure.Tests/VortexTrading.Infrastructure.Tests.csproj" />

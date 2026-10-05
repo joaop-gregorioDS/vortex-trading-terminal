@@ -41,9 +41,30 @@ npm audit
 
 ## Escopo
 
-Página temporária contendo apenas o nome do projeto, a confirmação de fundação operacional e Vortex Software. Tailwind fornece somente espaçamento, cores e tipografia básicos. O layout possui metadata básica, idioma inglês compatível com o conteúdo e CSS global.
+Na TASK 0.36, a página inicial passa a apresentar um snapshot histórico de demonstração: 200 Candles de um minuto, SMA(20) sobre o preço e MACD(12,26,9) em painel separado. O idioma do layout é `pt-BR`; TypeScript mantém `strict: true` e o alias `@/*` aponta para `./src/*`.
 
-TypeScript mantém `strict: true`, com alias `@/*` apontando para `./src/*`. Não há terminal, dashboard, gráficos, autenticação, comunicação com backend ou biblioteca adicional de produto. Nenhuma URL de API ou secret foi configurado.
+O Server Component busca `POST /api/chart-snapshots` em tempo de requisição, com `connection()` e `cache: "no-store"`. O build não depende de uma API disponível. Configure `VORTEX_API_BASE_URL` no ambiente do servidor Next.js; em desenvolvimento há fallback local para `http://127.0.0.1:5187`. Em produção a variável é obrigatória e a API de demonstração não é registrada. Nenhum secret é necessário para essa variável de URL, que não usa prefixo `NEXT_PUBLIC_`.
+
+Inicie a API no ambiente Development, mantendo a configuração de persistência já prevista pelo backend, e execute `npm run dev` neste diretório. A API não possui launch profile: da raiz, use `dotnet run --project src/VortexTrading.Api --no-launch-profile -- --environment Development --urls http://127.0.0.1:5187`. O gráfico funciona com PostgreSQL e Redis indisponíveis; seus readiness checks permanecem independentes. As configurações de conexão exigidas pelo startup do backend continuam aplicáveis.
+
+O Client Component cria e remove o gráfico no navegador. A aproximação de strings decimais para `number` e a conversão de UTC para segundos Unix ficam restritas ao adaptador gráfico. Não há cálculo financeiro no frontend, replay animado, streaming ou cache de resultados.
+
+Os seis checks determinísticos do adaptador usam o runner nativo do Node, sem framework adicional:
+
+```sh
+node --experimental-strip-types --test tests/charts-adapter.test.mjs
+```
+
+O Node instalado pode emitir `MODULE_TYPELESS_PACKAGE_JSON` ao carregar o módulo TypeScript do teste; isso não afeta o lint/build da aplicação. F-05 permanece dívida de tooling aceita: cinco pacotes da cadeia ESLint afetados pelo advisory `GHSA-vfj7-8cjw-p6xm`, sem vulnerabilidades no audit de produção após a adição do gráfico. Nenhum override ou audit fix foi aplicado nesta tarefa.
+
+## Biblioteca de gráficos e atribuição
+
+Única nova dependência direta de visualização: `lightweight-charts@5.2.1`, licença Apache-2.0, sem wrapper React. A logo de atribuição permanece habilitada, e o rodapé do gráfico preserva a ligação à TradingView e o aviso da versão utilizada:
+
+> TradingView Lightweight Charts™
+> Copyright (с) 2025 TradingView, Inc. https://www.tradingview.com/
+
+Fonte: [NOTICE da versão 5.2.1](https://github.com/tradingview/lightweight-charts/blob/v5.2.1/NOTICE). A arquitetura e as limitações da demonstração estão em [Historical Chart Vertical Slice](../../docs/architecture/historical-chart-vertical-slice.md).
 
 ## Referências
 

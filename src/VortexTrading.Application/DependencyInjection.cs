@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using VortexTrading.Application.Charts;
 
 namespace VortexTrading.Application;
 
@@ -8,7 +9,7 @@ public static class DependencyInjection
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        // Application services will be registered when use cases are introduced.
+        services.AddScoped<HistoricalChartQuery>();
         return services;
     }
 }
