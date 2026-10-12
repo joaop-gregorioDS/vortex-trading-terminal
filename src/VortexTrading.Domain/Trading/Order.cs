@@ -13,10 +13,11 @@ public sealed class Order : IEquatable<Order>
     public OrderId Id { get; }
     public InstrumentId InstrumentId { get; }
     public OrderSide Side { get; }
-    public OrderType Type { get; }
+    public OrderType Type { get; private set; }
     public Quantity Quantity { get; }
-    public Price? LimitPrice { get; }
+    public Price? LimitPrice { get; private set; }
     public TimeInForce TimeInForce { get; }
+    public OrderOrigin Origin { get; private set; }
     public UtcInstant CreatedAt { get; }
     public OrderStatus Status { get; private set; }
     public UtcInstant LastUpdatedAt { get; private set; }
@@ -29,16 +30,18 @@ public sealed class Order : IEquatable<Order>
     private bool IsTerminal => Status is OrderStatus.Filled or OrderStatus.Cancelled or OrderStatus.Rejected;
 
     private Order(OrderId? id, InstrumentId? instrumentId, OrderSide side, OrderType type,
-        Quantity? quantity, Price? limitPrice, TimeInForce timeInForce, UtcInstant? createdAt)
+        Quantity? quantity, Price? limitPrice, TimeInForce timeInForce, UtcInstant? createdAt,
+        OrderOrigin origin = OrderOrigin.Session)
     {
         if (id is null || instrumentId is null || quantity is null || createdAt is null)
         {
             throw new DomainException("Order requires an ID, instrument ID, quantity and creation time.");
         }
 
-        if (!Enum.IsDefined(side) || !Enum.IsDefined(type) || !Enum.IsDefined(timeInForce))
+        if (!Enum.IsDefined(side) || !Enum.IsDefined(type) || !Enum.IsDefined(timeInForce)
+            || !Enum.IsDefined(origin))
         {
-            throw new DomainException("Order requires supported side, type and time in force.");
+            throw new DomainException("Order requires supported side, type, time in force and origin.");
         }
 
         if (quantity.Value <= 0)
@@ -46,10 +49,12 @@ public sealed class Order : IEquatable<Order>
             throw new DomainException("Order quantity must be positive.");
         }
 
+        var priced = type is OrderType.Limit or OrderType.Stop;
         if ((type == OrderType.Market && limitPrice is not null)
-            || (type == OrderType.Limit && (limitPrice is null || limitPrice.Value <= 0)))
+            || (priced && (limitPrice is null || limitPrice.Value <= 0)))
         {
-            throw new DomainException("Market orders have no limit price; limit orders require a positive limit price.");
+            throw new DomainException(
+                "Market orders have no limit price; limit and stop orders require a positive price.");
         }
 
         Id = id;
@@ -59,6 +64,7 @@ public sealed class Order : IEquatable<Order>
         Quantity = quantity;
         LimitPrice = limitPrice;
         TimeInForce = timeInForce;
+        Origin = origin;
         CreatedAt = createdAt;
         LastUpdatedAt = createdAt;
         Status = OrderStatus.Created;
@@ -66,12 +72,23 @@ public sealed class Order : IEquatable<Order>
     }
 
     public static Order CreateMarket(OrderId? id, InstrumentId? instrumentId, OrderSide side,
-        Quantity? quantity, TimeInForce timeInForce, UtcInstant? createdAt)
-        => new(id, instrumentId, side, OrderType.Market, quantity, null, timeInForce, createdAt);
+        Quantity? quantity, TimeInForce timeInForce, UtcInstant? createdAt,
+        OrderOrigin origin = OrderOrigin.Session)
+        => new(id, instrumentId, side, OrderType.Market, quantity, null, timeInForce, createdAt, origin);
 
     public static Order CreateLimit(OrderId? id, InstrumentId? instrumentId, OrderSide side,
-        Quantity? quantity, Price? limitPrice, TimeInForce timeInForce, UtcInstant? createdAt)
-        => new(id, instrumentId, side, OrderType.Limit, quantity, limitPrice, timeInForce, createdAt);
+        Quantity? quantity, Price? limitPrice, TimeInForce timeInForce, UtcInstant? createdAt,
+        OrderOrigin origin = OrderOrigin.Session)
+        => new(id, instrumentId, side, OrderType.Limit, quantity, limitPrice, timeInForce, createdAt, origin);
+
+    /// <summary>
+    /// Stop order. The price is the trigger, stored in <see cref="LimitPrice"/>. A buy fills at a
+    /// later price at or above the trigger; a sell fills at a later price at or below it.
+    /// </summary>
+    public static Order CreateStop(OrderId? id, InstrumentId? instrumentId, OrderSide side,
+        Quantity? quantity, Price? triggerPrice, TimeInForce timeInForce, UtcInstant? createdAt,
+        OrderOrigin origin = OrderOrigin.Chart)
+        => new(id, instrumentId, side, OrderType.Stop, quantity, triggerPrice, timeInForce, createdAt, origin);
 
     public void Accept(UtcInstant? at)
     {
@@ -102,6 +119,33 @@ public sealed class Order : IEquatable<Order>
         ValidateApplicationTime(at);
         RejectionReason = reason;
         Status = OrderStatus.Rejected;
+        LastUpdatedAt = at!;
+    }
+
+    /// <summary>
+    /// Moves a resting limit or stop to a new price. The type may change between those two; the side,
+    /// quantity and identity stay. The caller decides which type the new price is.
+    /// </summary>
+    public void Revise(OrderType type, Price? price, UtcInstant? at)
+    {
+        if (Status is not (OrderStatus.Accepted or OrderStatus.PartiallyFilled))
+        {
+            throw new DomainException("Only a resting order can be revised.");
+        }
+
+        if (type is not (OrderType.Limit or OrderType.Stop))
+        {
+            throw new DomainException("Only a limit or a stop can be revised.");
+        }
+
+        if (price is null || price.Value <= 0m)
+        {
+            throw new DomainException("A revised order requires a positive price.");
+        }
+
+        ValidateApplicationTime(at);
+        Type = type;
+        LimitPrice = price;
         LastUpdatedAt = at!;
     }
 
@@ -146,11 +190,18 @@ public sealed class Order : IEquatable<Order>
         }
 
         ValidateApplicationTime(at);
-        if (LimitPrice is not null
+        if (Type == OrderType.Limit && LimitPrice is not null
             && ((Side == OrderSide.Buy && fill.Price.Value > LimitPrice.Value)
                 || (Side == OrderSide.Sell && fill.Price.Value < LimitPrice.Value)))
         {
             throw new DomainException("Order fill price violates the order limit.");
+        }
+
+        if (Type == OrderType.Stop && LimitPrice is not null
+            && ((Side == OrderSide.Buy && fill.Price.Value < LimitPrice.Value)
+                || (Side == OrderSide.Sell && fill.Price.Value > LimitPrice.Value)))
+        {
+            throw new DomainException("Order fill price does not cross the stop trigger.");
         }
 
         var totalUnits = ToQuantityUnits(Quantity.Value);

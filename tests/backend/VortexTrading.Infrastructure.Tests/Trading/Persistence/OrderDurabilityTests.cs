@@ -156,6 +156,12 @@ public sealed class OrderDurabilityTests
 
         public Task<IReadOnlyList<Order>> LoadAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<Order>>(_stored.ToArray());
+
+        public Task DeleteAllAsync(CancellationToken cancellationToken = default)
+        {
+            _stored.Clear();
+            return Task.CompletedTask;
+        }
     }
 
     /// <summary>Simulates a database that is unreachable for reads but accepts writes.</summary>
@@ -171,5 +177,7 @@ public sealed class OrderDurabilityTests
 
         public Task<IReadOnlyList<Order>> LoadAsync(CancellationToken cancellationToken = default) =>
             Task.FromException<IReadOnlyList<Order>>(new InvalidOperationException("Database is unavailable."));
+
+        public Task DeleteAllAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

@@ -32,6 +32,7 @@ public sealed class OrderTests
         Assert.Same(quantity, order.Quantity);
         Assert.Equal(decimal.GetBits(10.2500m), decimal.GetBits(order.Quantity.Value));
         Assert.Equal(TimeInForce.GTC, order.TimeInForce);
+        Assert.Equal(OrderOrigin.Session, order.Origin);
         Assert.Equal(OrderStatus.Created, order.Status);
         Assert.Same(Created, order.CreatedAt);
         Assert.Same(Created, order.LastUpdatedAt);
@@ -105,6 +106,71 @@ public sealed class OrderTests
     {
         Assert.Throws<DomainException>(() => Order.CreateLimit(Id, InstrumentId, OrderSide.Buy,
             new Quantity(1m), absent ? null : new Price(0m), TimeInForce.GTC, Created));
+    }
+
+    [Fact]
+    public void StopDefaultsToTheChartTapeAndKeepsTheTriggerPrice()
+    {
+        var trigger = new Price(209335m);
+        var order = Order.CreateStop(Id, InstrumentId, OrderSide.Buy, new Quantity(1m), trigger,
+            TimeInForce.GTC, Created);
+
+        Assert.Equal(OrderType.Stop, order.Type);
+        Assert.Equal(OrderOrigin.Chart, order.Origin);
+        Assert.Same(trigger, order.LimitPrice);
+        Assert.Equal(OrderStatus.Created, order.Status);
+    }
+
+    [Fact]
+    public void LimitCanRestOnTheChartTape()
+    {
+        var order = Order.CreateLimit(Id, InstrumentId, OrderSide.Sell, new Quantity(1m), new Price(56m),
+            TimeInForce.GTC, Created, OrderOrigin.Chart);
+
+        Assert.Equal(OrderType.Limit, order.Type);
+        Assert.Equal(OrderOrigin.Chart, order.Origin);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void StopRequiresAPresentPositiveTrigger(bool absent)
+    {
+        Assert.Throws<DomainException>(() => Order.CreateStop(Id, InstrumentId, OrderSide.Buy,
+            new Quantity(1m), absent ? null : new Price(0m), TimeInForce.GTC, Created));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(2)]
+    public void StopRejectsAnUndefinedOrigin(int origin)
+    {
+        Assert.Throws<DomainException>(() => Order.CreateStop(Id, InstrumentId, OrderSide.Buy,
+            new Quantity(1m), new Price(10m), TimeInForce.GTC, Created, (OrderOrigin)origin));
+    }
+
+    [Theory]
+    [InlineData(OrderSide.Buy, 109, false)]
+    [InlineData(OrderSide.Buy, 110, true)]
+    [InlineData(OrderSide.Buy, 130, true)]
+    [InlineData(OrderSide.Sell, 91, true)]
+    [InlineData(OrderSide.Sell, 100, true)]
+    [InlineData(OrderSide.Sell, 101, false)]
+    public void StopFillsMustCrossTheTrigger(OrderSide side, int price, bool allowed)
+    {
+        var trigger = side == OrderSide.Buy ? 110m : 100m;
+        var order = Order.CreateStop(Id, InstrumentId, side, new Quantity(1m), new Price(trigger),
+            TimeInForce.GTC, Created);
+        order.Accept(At(1));
+        if (allowed)
+        {
+            Assert.True(order.ApplyFill(Fill(1, 1m, price), At(2)));
+            Assert.Equal(OrderStatus.Filled, order.Status);
+        }
+        else
+        {
+            UnchangedFailure(order, () => order.ApplyFill(Fill(1, 1m, price), At(2)));
+        }
     }
 
     [Theory]

@@ -72,5 +72,7 @@ public sealed class RestoreConsistencyTests
 
         public Task<IReadOnlyList<Order>> LoadAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<Order>>([Order]);
+
+        public Task DeleteAllAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

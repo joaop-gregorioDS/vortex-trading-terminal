@@ -1,50 +1,67 @@
 using VortexTrading.Application.Charts;
 using VortexTrading.Application.IndicatorConsumption;
 using VortexTrading.Application.Indicators;
+using VortexTrading.Application.MarketData;
 using VortexTrading.Domain.Markets;
-using VortexTrading.Domain.Trading;
 using VortexTrading.Infrastructure.Trading.Session;
 
 namespace VortexTrading.Api.Charts;
 
-/// <summary>Builds a chart snapshot from the prices the simulated session actually published.</summary>
-/// <remarks>
-/// The demonstration fixture only exists in Development, so a hosted terminal had a market panel and
-/// no chart. This derives the series from the live session instead, using the exact decimals the
-/// session traded against (ADR-002), and reuses the same indicator calculator and the same response
-/// mapping as the demonstration endpoint so both charts are drawn from one implementation.
-/// <para>
-/// One observation becomes one candle. The simulated feed advances a fixed amount per tick rather
-/// than reporting intra-bar movement, so there is no genuine open/high/low to recover; mapping all
-/// four values to the observed price states that limit instead of inventing a range.
-/// </para>
-/// </remarks>
+/// <summary>Builds a chart from the prints the session published for one instrument.</summary>
 public static class LiveChartSnapshot
 {
-    /// <summary>Identifies the source so a client can tell this chart from the demo fixture.</summary>
+    /// <summary>Identifies the source so a client can tell this chart from the development fixture.</summary>
     public const string SourceId = "paper-session-v1";
 
     private static readonly IndicatorSpecification[] Specifications =
     [
         new SmaSpecification(20),
-        new MacdSpecification(12, 26, 9)
+        new MacdSpecification(12, 26, 9),
+        new BollingerBandsSpecification(20, 2.0m),
+        new RsiSpecification(14),
+        new VwapSpecification()
     ];
 
-    /// <summary>Builds a snapshot from observations, or null when there is nothing to plot yet.</summary>
-    public static HistoricalChartSnapshot? Build(IReadOnlyList<PriceObservation>? observations, int maxBars)
+    public static bool TryParseInterval(string? token, out CandleInterval interval)
     {
-        ArgumentNullException.ThrowIfNull(observations);
-        if (observations.Count == 0)
+        switch (token?.Trim().ToLowerInvariant())
         {
-            return null;
+            case "1m":
+                interval = CandleInterval.OneMinute;
+                return true;
+            case "5m":
+                interval = CandleInterval.FiveMinutes;
+                return true;
+            case "15m":
+                interval = CandleInterval.FifteenMinutes;
+                return true;
+            case "60m":
+            case "1h":
+                interval = CandleInterval.OneHour;
+                return true;
+            default:
+                interval = CandleInterval.OneMinute;
+                return false;
         }
+    }
 
-        var batch = observations
-            .TakeLast(Math.Max(1, maxBars))
-            .Select(observation => ToCandle(observation))
+    /// <summary>Aggregates the instrument's prints. Returns null when that book has no print yet.</summary>
+    public static HistoricalChartSnapshot? Build(
+        PaperTradingSession session,
+        AssetMarketProfile profile,
+        CandleInterval interval,
+        int maxBars)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(interval);
+
+        var bars = Math.Clamp(maxBars, 1, 500);
+        var prints = session.ObservationsFor(profile.InstrumentId)
+            .Select(observation => new MarketPrint(observation.EventTime, observation.ReferencePrice, observation.Volume))
             .ToArray();
-
-        if (batch.Length == 0)
+        var batch = PrintSeries.Aggregate(profile.InstrumentId, interval, prints, bars);
+        if (batch.Count == 0)
         {
             return null;
         }
@@ -59,28 +76,11 @@ public static class LiveChartSnapshot
             }
             catch (Exception error) when (error is ArgumentException or OverflowException)
             {
-                // A short series cannot support a warm-up, and an out-of-range value cannot be plotted.
-                // Dropping that one indicator keeps the price chart usable instead of failing the page.
                 continue;
             }
         }
 
-        var context = new HistoricalChartSourceContext(
-            PaperTradingSession.InstrumentId, CandleInterval.OneMinute, SourceId, IsDemo: true);
+        var context = new HistoricalChartSourceContext(profile.InstrumentId, interval, SourceId, IsDemo: true);
         return new HistoricalChartSnapshot(context, batch, results.AsReadOnly());
-    }
-
-    private static Candle ToCandle(PriceObservation observation)
-    {
-        var price = new Price(observation.ReferencePrice);
-        return new Candle(
-            PaperTradingSession.InstrumentId,
-            CandleInterval.OneMinute,
-            observation.EventTime,
-            price,
-            price,
-            price,
-            price,
-            new Quantity(observation.Volume));
     }
 }

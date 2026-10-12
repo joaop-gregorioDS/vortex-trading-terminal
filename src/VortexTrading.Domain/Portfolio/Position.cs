@@ -18,9 +18,9 @@ namespace VortexTrading.Domain.Portfolio;
 /// value is a policy input rather than a hardcoded constant inside the arithmetic.
 /// </para>
 /// <para>
-/// A sell can never push the position negative. If it exceeds the held quantity, the applied result
-/// reports it and the excess is ignored; the caller decides how to treat that, because inventing a
-/// short position is a trading policy this type must not assume.
+/// The default policy never pushes a position negative. A sell larger than the long reports the excess
+/// and ignores it. Day trade opts in with <c>allowShort</c>: the excess opens a short, and a buy larger
+/// than that short flips the position back. Average cost stays the authority on either side.
 /// </para>
 /// </remarks>
 public sealed class Position : IEquatable<Position>
@@ -80,9 +80,10 @@ public sealed class Position : IEquatable<Position>
     /// <summary>Applies one execution fill and returns the resulting position.</summary>
     /// <remarks>
     /// The result also reports the quantity the fill intended to sell and could not, so the caller is
-    /// never left guessing whether an excess was dropped.
+    /// never left guessing whether an excess was dropped. <paramref name="allowShort"/> is the day-trade
+    /// policy: the excess opens or extends a short instead of being ignored.
     /// </remarks>
-    public PositionFillResult Apply(OrderFill? fill, OrderSide side)
+    public PositionFillResult Apply(OrderFill? fill, OrderSide side, bool allowShort = false)
     {
         ArgumentNullException.ThrowIfNull(fill);
         if (!Enum.IsDefined(side))
@@ -92,6 +93,11 @@ public sealed class Position : IEquatable<Position>
 
         // OrderFill carries no instrument: a fill belongs to an order, which knows its instrument. The
         // caller owns that contextual resolution, so this type only enforces that it applies to itself.
+        if (allowShort)
+        {
+            return ApplyDayTrade(fill, side);
+        }
+
         return side == OrderSide.Buy ? ApplyBuy(fill) : ApplySell(fill);
     }
 
@@ -139,6 +145,57 @@ public sealed class Position : IEquatable<Position>
             sold,
             excess);
     }
+
+    /// <summary>
+    /// Average-cost fill that may open, extend, reduce or flip a short. Quantity is negative while short.
+    /// </summary>
+    private PositionFillResult ApplyDayTrade(OrderFill fill, OrderSide side)
+    {
+        var signed = side == OrderSide.Buy
+            ? fill.Quantity.Value
+            : ExactDecimal.Negate(fill.Quantity.Value);
+        if (Quantity == 0m || Math.Sign(Quantity) == Math.Sign(signed))
+        {
+            return At(
+                ExactDecimal.Add(Quantity, signed),
+                ExactDecimal.Add(TotalCost, ExactDecimal.Multiply(signed, fill.Price.Value, MoneyScale)),
+                RealizedProfitAndLoss,
+                fill,
+                fill.Quantity.Value);
+        }
+
+        var scale = Math.Min(MoneyScale + 2, ExactDecimal.MaximumScale);
+        var average = ExactDecimal.Divide(TotalCost, Quantity, scale);
+        var heldAbs = Quantity < 0m ? ExactDecimal.Negate(Quantity) : Quantity;
+        var closing = ExactDecimal.Compare(fill.Quantity.Value, heldAbs) > 0 ? heldAbs : fill.Quantity.Value;
+        var opening = ExactDecimal.Subtract(fill.Quantity.Value, closing);
+        var difference = Quantity > 0m
+            ? ExactDecimal.Subtract(fill.Price.Value, average)
+            : ExactDecimal.Subtract(average, fill.Price.Value);
+        var realized = ExactDecimal.Add(RealizedProfitAndLoss,
+            ExactDecimal.Multiply(difference, closing, MoneyScale));
+
+        if (opening == 0m)
+        {
+            var remainingAbs = ExactDecimal.Subtract(heldAbs, closing);
+            var remaining = remainingAbs == 0m
+                ? 0m
+                : Quantity > 0m ? remainingAbs : ExactDecimal.Negate(remainingAbs);
+            var cost = remaining == 0m
+                ? 0m
+                : ExactDecimal.Subtract(TotalCost, ExactDecimal.Multiply(
+                    average, Quantity > 0m ? closing : ExactDecimal.Negate(closing), MoneyScale));
+            return At(remaining, cost, realized, fill, fill.Quantity.Value);
+        }
+
+        var opened = side == OrderSide.Buy ? opening : ExactDecimal.Negate(opening);
+        return At(opened, ExactDecimal.Multiply(opened, fill.Price.Value, MoneyScale), realized, fill,
+            fill.Quantity.Value);
+    }
+
+    private PositionFillResult At(decimal quantity, decimal totalCost, decimal realized, OrderFill fill,
+        decimal applied) =>
+        new(new Position(InstrumentId, quantity, totalCost, realized, MoneyScale, fill.ExecutedAt), applied, 0m);
 
     /// <summary>Unrealized profit or loss at a mark price, at <see cref="MoneyScale"/>.</summary>
     /// <remarks>

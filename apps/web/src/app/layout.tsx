@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { FontScale } from "@/components/page-tools";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,7 +14,9 @@ export default function RootLayout({
 }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="pt-BR">
-      <body>{children}</body>
+      <body>
+        <FontScale>{children}</FontScale>
+      </body>
     </html>
   );
 }

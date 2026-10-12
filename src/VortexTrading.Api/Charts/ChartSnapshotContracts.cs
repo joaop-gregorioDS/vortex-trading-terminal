@@ -13,6 +13,9 @@ public sealed record ChartSnapshotRequest
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "id")]
 [JsonDerivedType(typeof(SmaRequest), "sma")]
 [JsonDerivedType(typeof(MacdRequest), "macd")]
+[JsonDerivedType(typeof(BollingerBandsRequest), "bollinger-bands")]
+[JsonDerivedType(typeof(RsiRequest), "rsi")]
+[JsonDerivedType(typeof(VwapRequest), "vwap")]
 public abstract record IndicatorRequest;
 
 public sealed record SmaRequest : IndicatorRequest
@@ -25,8 +28,26 @@ public sealed record MacdRequest : IndicatorRequest
     [JsonRequired] public required MacdParameters Parameters { get; init; }
 }
 
+public sealed record BollingerBandsRequest : IndicatorRequest
+{
+    [JsonRequired] public required BollingerBandsParameters Parameters { get; init; }
+}
+
+public sealed record RsiRequest : IndicatorRequest
+{
+    [JsonRequired] public required RsiParameters Parameters { get; init; }
+}
+
+public sealed record VwapRequest : IndicatorRequest
+{
+    public VwapParameters? Parameters { get; init; }
+}
+
 [JsonDerivedType(typeof(SmaParameters))]
 [JsonDerivedType(typeof(MacdParameters))]
+[JsonDerivedType(typeof(BollingerBandsParameters))]
+[JsonDerivedType(typeof(RsiParameters))]
+[JsonDerivedType(typeof(VwapParameters))]
 public abstract record IndicatorParameters;
 
 public sealed record SmaParameters : IndicatorParameters
@@ -40,6 +61,19 @@ public sealed record MacdParameters : IndicatorParameters
     [JsonRequired] public int SlowPeriod { get; init; }
     [JsonRequired] public int SignalPeriod { get; init; }
 }
+
+public sealed record BollingerBandsParameters : IndicatorParameters
+{
+    public int Period { get; init; } = 20;
+    public decimal Multiplier { get; init; } = 2.0m;
+}
+
+public sealed record RsiParameters : IndicatorParameters
+{
+    public int Period { get; init; } = 14;
+}
+
+public sealed record VwapParameters : IndicatorParameters;
 
 public sealed record ChartContextResponse(string InstrumentId, string Interval, string SourceId, bool IsDemo, int BarCount);
 public sealed record CandleResponse(string OpenTime, string CloseTime, string Open, string High, string Low, string Close, string Volume);

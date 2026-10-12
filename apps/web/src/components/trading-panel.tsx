@@ -122,7 +122,17 @@ export function TradingPanel({ instrumentId = DEMO_INSTRUMENT }: { instrumentId?
 
       setNotice(
         result.ok
-          ? { tone: "ok", text: `Ordem ${result.value.orderId.slice(0, 8)} enviada como ${statusLabels[result.value.status].toLowerCase()}.` }
+          ? result.value.status === "rejected"
+            ? {
+                tone: "error",
+                text: `Ordem ${result.value.orderId.slice(0, 8)} rejeitada pela validação de risco${
+                  result.value.rejectionReason ? ` (${result.value.rejectionReason})` : ""
+                }.`,
+              }
+            : {
+                tone: "ok",
+                text: `Ordem ${result.value.orderId.slice(0, 8)} enviada como ${statusLabels[result.value.status].toLowerCase()}.`,
+              }
           : { tone: "error", text: result.error },
       );
       await refresh();
@@ -440,7 +450,10 @@ function OrdersTable({
                     {averageFillPrice(order)}
                   </td>
                   <td className="px-3 py-2">
-                    <span className={`rounded-full border px-2 py-0.5 text-[10px] ${statusTone(order.status)}`}>
+                    <span
+                      title={order.rejectionReason ? `Motivo: ${order.rejectionReason}` : undefined}
+                      className={`rounded-full border px-2 py-0.5 text-[10px] ${statusTone(order.status)}`}
+                    >
                       {statusLabels[order.status]}
                     </span>
                   </td>
@@ -475,7 +488,9 @@ function OrdersTable({
  */
 function averageFillPrice(order: OrderTransport): string {
   if (order.fills.length === 0) {
-    return order.limitPrice ? `${formatMoney(order.limitPrice)} (limite)` : "—";
+    if (!order.limitPrice) return "—";
+    const kind = order.type === "stop" ? "stop" : order.type === "market" ? "preço" : "limite";
+    return `${formatMoney(order.limitPrice)} (${kind})`;
   }
   const prices = Array.from(new Set(order.fills.map((fill) => fill.price)));
   if (prices.length === 1) return formatMoney(prices[0]);

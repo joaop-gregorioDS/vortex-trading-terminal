@@ -57,6 +57,7 @@ export const sideLabels: Record<OrderSide, string> = {
 export const typeLabels: Record<OrderType, string> = {
   market: "Mercado",
   limit: "Limite",
+  stop: "Stop",
 };
 
 export const statusLabels: Record<OrderStatus, string> = {
@@ -96,4 +97,177 @@ export function toneForSignedValue(value: string): string {
   if (value.startsWith("-")) return "text-rose-300";
   if (/^0(\.0+)?$/.test(value)) return "text-slate-300";
   return "text-emerald-300";
+}
+
+/** Groups an exact money string and prefixes the real sign. An empty value stays blank. */
+export function formatBrl(value: string | null | undefined): string {
+  if (!value) return "—";
+  return `R$ ${formatMoney(value)}`;
+}
+
+export function formatSignedBrl(value: string | null | undefined): string {
+  if (!value) return "—";
+  const negative = value.startsWith("-");
+  const magnitude = negative ? value.slice(1) : value;
+  if (isZeroDecimal(magnitude)) return `R$ ${formatMoney(magnitude)}`;
+  return `${negative ? "-" : "+"}R$ ${formatMoney(magnitude)}`;
+}
+
+/** -1 when the decimal string is negative, 0 when it is blank or zero, 1 otherwise. */
+export function signOf(value: string | null | undefined): -1 | 0 | 1 {
+  if (!value || isZeroDecimal(value.startsWith("-") ? value.slice(1) : value)) return 0;
+  return value.startsWith("-") ? -1 : 1;
+}
+
+/**
+ * Shows a ratio as a percent by moving the decimal point two places, then keeping two fractional
+ * digits. 0.125 becomes 12,5% and a long session ratio becomes 0,02%. Money strings are not rounded.
+ */
+export function formatRatioPercent(ratio: string | null | undefined): string {
+  if (!ratio) return "—";
+  const shifted = shiftDecimalPoint(ratio, 2);
+  return `${groupDecimal(trimDecimal(roundDecimal(shifted, 2)))}%`;
+}
+
+/**
+ * Groups a chart coordinate the same way a quote groups an API decimal.
+ * The coordinate is already a drawing number; this only chooses the glyphs.
+ */
+export function formatChartPrice(value: number, precision: number): string {
+  if (!Number.isFinite(value)) return "—";
+  const places = precision > 0 ? precision : 0;
+  const fixed = Math.abs(value).toFixed(places);
+  return groupDecimal(value < 0 ? `-${fixed}` : fixed);
+}
+
+/** UTC unix seconds on the Brasília clock. The stored candle time is not shifted. */
+export function brasiliaFromUnix(unixSeconds: number): { time: string; date: string } {
+  if (!Number.isFinite(unixSeconds)) return { time: "—", date: "—" };
+  return formatBrasilia(new Date(unixSeconds * 1000).toISOString());
+}
+
+/** Crosshair label, Brasília, minute resolution. */
+export function formatChartCrosshair(unixSeconds: number): string {
+  const clock = brasiliaFromUnix(unixSeconds);
+  if (clock.time === "—") return "—";
+  return `${clock.date} ${clock.time.slice(0, 5)}`;
+}
+
+/**
+ * Time-scale tick. `mark` follows lightweight-charts TickMarkType:
+ * 0 year, 1 month, 2 day, 3 time, 4 time with seconds. Labels stay within 8 characters.
+ */
+export function formatChartTick(unixSeconds: number, mark: number): string {
+  const clock = brasiliaFromUnix(unixSeconds);
+  if (clock.time === "—") return "—";
+  if (mark === 0) return clock.date.slice(6);
+  if (mark === 1) return `${clock.date.slice(3, 5)}/${clock.date.slice(6)}`;
+  if (mark === 2) return clock.date.slice(0, 5);
+  if (mark === 4) return clock.time;
+  return clock.time.slice(0, 5);
+}
+
+/** Simulated clock in Brasília, which is UTC−3. This only rewrites the clock, never a price. */
+export function formatBrasilia(iso: string | null | undefined): { time: string; date: string } {
+  if (!iso) return { time: "—", date: "—" };
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(iso);
+  if (!match) return { time: "—", date: "—" };
+
+  let year = Number(match[1]);
+  let month = Number(match[2]);
+  let day = Number(match[3]);
+  let hour = Number(match[4]) - 3;
+  if (hour < 0) {
+    hour += 24;
+    day -= 1;
+    if (day < 1) {
+      month -= 1;
+      if (month < 1) {
+        month = 12;
+        year -= 1;
+      }
+      day = daysInMonth(year, month);
+    }
+  }
+
+  return {
+    time: `${pad(hour)}:${match[5]}:${match[6]}`,
+    date: `${pad(day)}/${pad(month)}/${year}`,
+  };
+}
+
+function isZeroDecimal(value: string): boolean {
+  return /^0*(?:\.0*)?$/.test(value);
+}
+
+function pad(value: number): string {
+  return value < 10 ? `0${value}` : String(value);
+}
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+/** Rounds an exact decimal string half away from zero. Used for percent display, never for money. */
+function roundDecimal(value: string, places: number): string {
+  const negative = value.startsWith("-");
+  const unsigned = negative ? value.slice(1) : value;
+  const [wholeRaw, fraction = ""] = unsigned.split(".");
+  const whole = wholeRaw.replace(/^0+/, "") || "0";
+  if (fraction.length <= places) {
+    const text = places === 0 ? whole : `${whole}.${fraction.padEnd(places, "0")}`;
+    return negative && !isZeroDecimal(text) ? `-${text}` : text;
+  }
+
+  const keep = fraction.slice(0, places);
+  if (fraction[places] < "5") {
+    const text = places === 0 ? whole : `${whole}.${keep}`;
+    return negative && !isZeroDecimal(text) ? `-${text}` : text;
+  }
+
+  const incremented = incrementDigits(`${whole}${keep}`.replace(/^0+/, "") || "0");
+  let text: string;
+  if (places === 0) {
+    text = incremented;
+  } else if (incremented.length <= places) {
+    text = `0.${incremented.padStart(places, "0")}`;
+  } else {
+    const split = incremented.length - places;
+    text = `${incremented.slice(0, split)}.${incremented.slice(split)}`;
+  }
+  return negative && !isZeroDecimal(text) ? `-${text}` : text;
+}
+
+function incrementDigits(digits: string): string {
+  const chars = digits.split("");
+  let carry = 1;
+  for (let index = chars.length - 1; index >= 0 && carry === 1; index -= 1) {
+    const sum = chars[index].charCodeAt(0) - 48 + carry;
+    chars[index] = String(sum % 10);
+    carry = sum >= 10 ? 1 : 0;
+  }
+  return carry === 1 ? `1${chars.join("")}` : chars.join("");
+}
+
+/** Moves the decimal point of an exact decimal string. places may be negative. */
+function shiftDecimalPoint(value: string, places: number): string {
+  const negative = value.startsWith("-");
+  const unsigned = negative ? value.slice(1) : value;
+  const [wholeRaw, fraction = ""] = unsigned.split(".");
+  const whole = wholeRaw.replace(/^0+/, "") || "0";
+  const digits = `${whole}${fraction}`;
+  const point = whole.length + places;
+  let shifted: string;
+  if (point <= 0) {
+    shifted = `0.${"0".repeat(-point)}${digits}`;
+  } else if (point >= digits.length) {
+    shifted = `${digits}${"0".repeat(point - digits.length)}`;
+  } else {
+    shifted = `${digits.slice(0, point)}.${digits.slice(point)}`;
+  }
+
+  const [integerRaw, fractionRaw] = shifted.split(".");
+  const integer = integerRaw.replace(/^0+/, "") || "0";
+  shifted = fractionRaw === undefined ? integer : `${integer}.${fractionRaw}`.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+  return negative && !isZeroDecimal(shifted) ? `-${shifted}` : shifted;
 }

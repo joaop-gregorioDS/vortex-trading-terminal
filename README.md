@@ -8,10 +8,10 @@ Projeto de terminal financeiro web original para estudar engenharia de software,
 
 ## Estágio atual
 
-<!-- ESTAGIO-ATUAL: TASK 8.0 -->
-**TASK 8.0** — visibilidade operacional: eventos de negócio estruturados por fato aplicado, SQL do EF Core fora do nível informativo e `GET /api/status` com o estado da sessão (ADR-042). Sobre o terminal operável (ADR-041) e as camadas anteriores (ADR-036 a ADR-040). Anteriormente: persistência do agregado `Order` (ADR-035) e o workflow de execução (ADR-032 a ADR-034).
+<!-- ESTAGIO-ATUAL: TASK 11.0 -->
+**TASK 11.0** — Pregão simulado de ponta a ponta: uma sessão multiativo alimenta cotações, gráfico, livro, boleta, posições, zeragem e relatórios; o valor do ponto dos minicontratos entra na leitura; a demonstração reinicia por `POST /api/session/reset` (ADR-045). Anteriormente: estação de negociação (ADR-044).
 
-A visão de produto é um **app web** de operação em ambiente **simulado**: Paper Trading de ponta a ponta, hospedado futuramente na VPS da Vortex Software. O frontend hoje apresenta o histórico de demonstração; a operação chega nas etapas seguintes do roadmap.
+A visão de produto é um **app web** de paper trading: um pregão simulado, coordenado com a API, hospedado futuramente na VPS da Vortex Software. O frontend mostra a mesma sessão em todas as telas — cotações, gráfico, livro, boleta, posições e relatórios derivados dos prints e dos fills.
 
 ## O que já existe
 
@@ -19,22 +19,25 @@ A visão de produto é um **app web** de operação em ambiente **simulado**: Pa
 | --- | --- |
 | Domínio financeiro | `Money`, `Price`, `Quantity`, `Currency` com precisão decimal exata; `Instrument`, `Symbol`, `Venue`, `AssetClass`, `Candle`, `Quote`, `Trade`; `UtcInstant` para tempo UTC |
 | Ordens | `Order` e `OrderFill` com ciclo de vida, identidade de execução e conservação de quantidade provada em unidades inteiras de 10⁻²⁸ |
-| Execução | `IExecutionProvider`, fatos normalizados (`Accepted`/`Rejected`/`Fill`/`Cancelled`), falhas operacionais e `OrderExecutionWorkflow` |
+| Risco Pré-Trade | Módulo `Risk` com regras configuráveis: `MaxOrderQuantity`, `MaxOrderNotional`, `MaxPositionQuantity` e `ReferencePriceForMarketOrders`; rejeições registradas com motivo explícito |
+| Execução | `IExecutionProvider`, fatos normalizados (`Accepted`/`Rejected`/`Fill`/`Cancelled`), falhas operacionais, `OrderExecutionWorkflow` e ação atômica de liquidação `POST /api/orders/emergency-flat` |
 | Paper Exchange | `PaperExecutionProvider` determinístico: liquidez finita com fills parciais, limite preenchido no próprio limite, FIFO e `ExecutionId` derivado. Sem relógio, sem aleatoriedade e sem look-ahead |
 | Coordenação | `ExecutionCoordinator`: dono do escopo, consumidor único dos relatórios, roteamento por `OrderId` e tempo explícito em cada operação |
 | Portfólio | `ExactDecimal`, `Position` e `Portfolio`: custo médio, P&L realizado e não realizado exatos, sem escala universal |
-| API de trading | `GET /api/trading/market`, `POST/GET /api/orders`, `POST /api/orders/{id}/cancel` e `GET /api/portfolio`, somente em Development |
-| Sessão simulada | `PaperTradingSession` (singleton) e feed determinístico de um tick por segundo; valores exatos trafegam como string decimal |
-| Mesa de operação | Painel de ordens, carteira e posição no Next.js, com envio e cancelamento; cliente não faz aritmética de dinheiro e a simulação é rotulada na tela |
+| API de trading | `GET /api/terminal`, `GET /api/trading/market`, `POST/GET /api/orders`, `POST /api/orders/{id}/cancel`, `POST /api/orders/emergency-flat`, `GET /api/market/quotes`, `GET /api/market/depth`, `GET /api/market/history`, `GET /api/chart`, `GET /api/reports/performance`, `GET /api/reports/trades`, `GET /api/portfolio` e `POST /api/session/reset` |
+| Sessão simulada | `PaperTradingSession` (singleton): um relógio e um livro por ativo do catálogo. O feed publica um round determinístico; o reset reabre o pregão no instante inicial. Valores exatos trafegam como string decimal |
+| Estação (Frontend) | AppShell com relógio de Brasília, saldo e patrimônio lidos do snapshot; Visão Geral; Mesa com gráfico, mercado, livro e boleta; Relatórios com 10 KPIs, curva de equity e CSV. Sem robô |
+| Market Data & Quotes | Catálogo de 15 ativos da B3 (PETR4, VALE3, ITUB4, WING26, WDOU26...) com cotações, variações e extremos do dia. `GET /api/market/history` lê candles atrasados do Yahoo Finance: ações com sufixo `.SA`, o mini-índice no Ibovespa (`^BVSP`) e o mini-dólar no dólar comercial (`BRL=X`) em pontos. Essa série não entra no pregão simulado |
+| Relatórios & Métricas | Apurador de desempenho de Day Trade com Win Rate, Profit Factor, Payoff, Max Drawdown, Curva de Equity e download de CSV |
 | Operação | Eventos de negócio estruturados por fato aplicado e `GET /api/status` com tempo simulado, preço, ordens por situação, fills e quantidade negociada |
 | Market Data | Porta de provider, orquestrador, provider de simulação determinístico e provider histórico de replay |
 | Replay | `ReplaySession`, `ReplayTimeline`, `CausalReplaySession` com semântica de disponibilidade temporal, sem uso de dados futuros |
 | Indicadores | SMA, EMA, MACD, RSI, ATR, Stochastic, Bollinger Bands, VWAP, ADX e OBV com consumo em lote e runtime causal em replay |
-| Charts | Endpoint `POST /api/chart-snapshots` (somente Development) e página inicial com candles de um minuto |
+| Charts | Endpoint `POST /api/chart-snapshots`, `GET /api/chart` e gráficos de candlestick responsivos com `lightweight-charts` |
 | Persistência | `Order` e `OrderFill` em PostgreSQL, schema `trading`, valores exatos como `numeric` sem precisão declarada, enums por nome e primeira migration aplicada |
 | Infraestrutura | Health checks `live` e `ready`; PostgreSQL e Redis no Compose local; imagens Linux não-root, serviço de migrations e composição de produção validada em `deploy/` |
 
-Ainda **não** implementados: Risk, Backtesting, Strategy Lab, Algo Trading, autenticação, recuperação de execução em voo, métricas e tracing distribuído.
+Ainda **não** implementados: Backtesting, Strategy Lab, Algo Trading, stops e OCO, autenticação, recuperação de execução em voo, métricas e tracing distribuído.
 
 ## Arquitetura e stack
 
@@ -55,7 +58,7 @@ Infrastructure → Application + Domain
 Api            → Application + Infrastructure
 ```
 
-Consulte a [visão arquitetural](docs/architecture/overview.md) e os [ADRs](docs/adr/), atualmente 42 decisões aceitas.
+Consulte a [visão arquitetural](docs/architecture/overview.md) e os [ADRs](docs/adr/), atualmente 44 decisões aceitas.
 
 ## Validação
 
@@ -102,7 +105,7 @@ A connection string local fica em User Secrets (`ConnectionStrings:PostgreSQL`);
 1. Baseline de engenharia e arquitetura. **Concluído.**
 2. Bootstrap revisado do frontend, testes e infraestrutura de desenvolvimento. **Concluído.**
 3. Dados simulados/autorizados, visualização e Paper Trading. **Concluído:** dados, visualização, persistência de ordens e Paper Exchange.
-4. Portfolio, Risk e indicadores centrais. Indicadores e Portfolio concluídos; Risk pendente.
+4. Portfolio, Risk e indicadores centrais. **Concluído:** Indicadores, Portfolio e Risk.
 5. Replay, backtesting, Strategy Lab e runtime de estratégias. Replay concluído; backtesting, Strategy Lab e runtime pendentes.
 6. Observabilidade, automação de validação e deploy. CI, artefatos e deploy validados em containers; visibilidade operacional concluída, com métricas e tracing adiados por decisão registrada.
 

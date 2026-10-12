@@ -29,6 +29,7 @@ public sealed class OrderPersistenceTests(PersistenceTestFixture fixture) : ICla
 
         var loaded = await Reload(session.Context, order.Id);
         Assert.Equal(OrderType.Market, loaded.Type);
+        Assert.Equal(OrderOrigin.Session, loaded.Origin);
         Assert.Null(loaded.LimitPrice);
         Assert.Equal(OrderStatus.Created, loaded.Status);
         Assert.Equal(order.InstrumentId, loaded.InstrumentId);
@@ -57,6 +58,7 @@ public sealed class OrderPersistenceTests(PersistenceTestFixture fixture) : ICla
 
         var loaded = await Reload(session.Context, order.Id);
         Assert.Equal(OrderStatus.PartiallyFilled, loaded.Status);
+        Assert.Equal(OrderOrigin.Session, loaded.Origin);
         Assert.Equal(expectedUpdatedAt, loaded.LastUpdatedAt);
         Assert.Equal(32.50m, loaded.LimitPrice!.Value);
         Assert.Equal(4m, loaded.FilledQuantity.Value);
@@ -66,6 +68,23 @@ public sealed class OrderPersistenceTests(PersistenceTestFixture fixture) : ICla
         Assert.Equal(fill.Quantity.Value, loadedFill.Quantity.Value);
         Assert.Equal(fill.Price.Value, loadedFill.Price.Value);
         Assert.Equal(fill.ExecutedAt, loadedFill.ExecutedAt);
+    }
+
+    [Fact]
+    public async Task ChartStopSurvivesRoundTripWithItsOriginAndTrigger()
+    {
+        await using var session = fixture.OpenSession();
+        var order = Order.CreateStop(OrderId.From(Guid.NewGuid()), fixture.TestInstrument,
+            OrderSide.Buy, new Quantity(1m), new Price(209335m), TimeInForce.GTC, Created);
+
+        session.Context.Orders.Add(order);
+        await session.Context.SaveChangesAsync(Token);
+
+        var loaded = await Reload(session.Context, order.Id);
+        Assert.Equal(OrderType.Stop, loaded.Type);
+        Assert.Equal(OrderOrigin.Chart, loaded.Origin);
+        Assert.Equal(209335m, loaded.LimitPrice!.Value);
+        Assert.Equal(OrderStatus.Created, loaded.Status);
     }
 
     [Fact]

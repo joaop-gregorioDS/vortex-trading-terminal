@@ -71,7 +71,8 @@ public sealed class OrderIdentityTests
     public void EnumsContainExactlyTheApprovedSemanticValues()
     {
         Assert.Equal(["Buy", "Sell"], Enum.GetNames<OrderSide>());
-        Assert.Equal(["Market", "Limit"], Enum.GetNames<OrderType>());
+        Assert.Equal(["Market", "Limit", "Stop"], Enum.GetNames<OrderType>());
+        Assert.Equal(["Session", "Chart"], Enum.GetNames<OrderOrigin>());
         Assert.Equal(["GTC"], Enum.GetNames<TimeInForce>());
         Assert.Equal(["Created", "Accepted", "PartiallyFilled", "Filled", "Cancelled", "Rejected"], Enum.GetNames<OrderStatus>());
         Assert.Equal(["PreTradeValidationFailed", "ExecutionProviderRejected"], Enum.GetNames<OrderRejectionReason>());

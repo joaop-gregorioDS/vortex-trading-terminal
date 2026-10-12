@@ -14,7 +14,8 @@ namespace VortexTrading.Infrastructure.Trading.Paper;
 /// Implements <see cref="IExecutionProvider"/> without a clock, randomness or external system. Every
 /// time value is supplied by the caller and every price comes from an observation, so identical
 /// inputs always produce identical reports. Matching rules and their documented limits are in
-/// ADR-036.
+/// ADR-036. Session observations and chart observations are separate tapes: each keeps its own clock
+/// and its own remaining volume, and each fills only orders of the same origin.
 /// <para>
 /// This provider does not run a report consumer. It publishes to <see cref="Reports"/>, a buffered
 /// channel whose single reader is the execution coordinator, and that consumer takes ownership before
@@ -32,10 +33,8 @@ public sealed class PaperExecutionProvider : IExecutionProvider, IPaperMarketObs
         Channel.CreateUnbounded<ExecutionReport>(new UnboundedChannelOptions { SingleReader = true });
 
     private readonly Dictionary<OrderId, OrderState> _book = [];
+    private readonly Dictionary<OrderOrigin, ObservationTape> _tapes = [];
     private readonly InstrumentId _instrumentId;
-    private PaperMarketObservation? _current;
-    private decimal _remainingVolume;
-    private UtcInstant? _lastObservationTime;
     private bool _disposed;
 
     public PaperExecutionProvider(InstrumentId? instrumentId, string providerKey = DefaultProviderKey)
@@ -65,6 +64,20 @@ public sealed class PaperExecutionProvider : IExecutionProvider, IPaperMarketObs
     /// <summary>Orders still eligible to fill. Exposed for operational inspection.</summary>
     public int RestingOrderCount => _book.Count;
 
+    /// <summary>
+    /// Volume of the latest session observation that no session fill has consumed yet.
+    /// Chart observations do not change the simulated book.
+    /// </summary>
+    public decimal AvailableVolume =>
+        _tapes.TryGetValue(OrderOrigin.Session, out var tape) ? tape.RemainingVolume : 0m;
+
+    /// <summary>Drops resting orders and both tapes so a restarted clock can print again.</summary>
+    public void DiscardBook()
+    {
+        _book.Clear();
+        _tapes.Clear();
+    }
+
     /// <summary>Publishes one market observation and matches every resting order against it.</summary>
     /// <remarks>
     /// Observations must not move backwards in time; an out-of-order observation is a caller
@@ -83,16 +96,17 @@ public sealed class PaperExecutionProvider : IExecutionProvider, IPaperMarketObs
                 nameof(observation));
         }
 
-        if (_lastObservationTime is not null && observation.EventTime.CompareTo(_lastObservationTime) < 0)
+        var tape = TapeFor(observation.Origin);
+        if (tape.LastEventTime is not null && observation.EventTime.CompareTo(tape.LastEventTime) < 0)
         {
             throw new ArgumentException(
                 "Observations must be published in non-decreasing event time.", nameof(observation));
         }
 
-        _lastObservationTime = observation.EventTime;
-        _current = observation;
-        _remainingVolume = observation.AvailableVolume.Value;
-        Match();
+        tape.LastEventTime = observation.EventTime;
+        tape.Current = observation;
+        tape.RemainingVolume = observation.AvailableVolume.Value;
+        Match(observation.Origin);
     }
 
     public Task SubmitAsync(OrderSubmission submission, UtcInstant submittedAt,
@@ -130,7 +144,7 @@ public sealed class PaperExecutionProvider : IExecutionProvider, IPaperMarketObs
         // Accepted is published before any fill, so the consumer never sees a fill for an order whose
         // acceptance it has not received through this stream.
         Publish(ExecutionReport.FromAccepted(state.OrderId, submittedAt));
-        Match();
+        Match(state.Origin);
 
         return Task.CompletedTask;
     }
@@ -153,6 +167,27 @@ public sealed class PaperExecutionProvider : IExecutionProvider, IPaperMarketObs
 
         Publish(ExecutionReport.FromCancelled(orderId, requestedAt));
         return Task.CompletedTask;
+    }
+
+    /// <summary>Moves a resting order's price and type. It does not match the observation already on the tape.</summary>
+    public bool ReviseResting(OrderId orderId, OrderType type, Price price)
+    {
+        ArgumentNullException.ThrowIfNull(orderId);
+        ArgumentNullException.ThrowIfNull(price);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (type is not (OrderType.Limit or OrderType.Stop) || price.Value <= 0m)
+        {
+            throw new ArgumentOutOfRangeException(nameof(type), "Only a positive limit or stop can be revised.");
+        }
+
+        if (!_book.TryGetValue(orderId, out var state))
+        {
+            return false;
+        }
+
+        state.Type = type;
+        state.LimitPrice = price;
+        return true;
     }
 
     /// <summary>
@@ -185,10 +220,15 @@ public sealed class PaperExecutionProvider : IExecutionProvider, IPaperMarketObs
         Complete();
     }
 
-    private void Match()
+    private void Match(OrderOrigin origin)
     {
-        var observation = _current;
-        if (observation is null || _remainingVolume <= 0m)
+        if (!_tapes.TryGetValue(origin, out var tape))
+        {
+            return;
+        }
+
+        var observation = tape.Current;
+        if (observation is null || tape.RemainingVolume <= 0m)
         {
             return;
         }
@@ -196,9 +236,14 @@ public sealed class PaperExecutionProvider : IExecutionProvider, IPaperMarketObs
         var fills = 0;
         foreach (var state in _book.Values.ToArray())
         {
-            if (_remainingVolume <= 0m || fills >= MaximumFillsPerMatch)
+            if (tape.RemainingVolume <= 0m || fills >= MaximumFillsPerMatch)
             {
                 return;
+            }
+
+            if (state.Origin != origin)
+            {
+                continue;
             }
 
             if (!TryResolveFillPrice(state, observation, out var fillPrice))
@@ -208,13 +253,13 @@ public sealed class PaperExecutionProvider : IExecutionProvider, IPaperMarketObs
 
             // Fills consume the observation volume in arrival order. The quantity is clamped to the
             // order's exact remainder, so accumulated fills can never exceed the submitted quantity.
-            var quantity = Math.Min(_remainingVolume, state.Remaining);
+            var quantity = Math.Min(tape.RemainingVolume, state.Remaining);
             if (quantity <= 0m)
             {
                 continue;
             }
 
-            _remainingVolume -= quantity;
+            tape.RemainingVolume -= quantity;
             state.Remaining -= quantity;
             var sequence = state.NextFillSequence++;
 
@@ -236,7 +281,9 @@ public sealed class PaperExecutionProvider : IExecutionProvider, IPaperMarketObs
     /// <summary>Decides whether and at which price an order fills at the observed reference price.</summary>
     /// <remarks>
     /// Market orders fill at the reference price. Limit orders fill only when the reference reaches
-    /// the limit, and always at the limit price, never better (ADR-036).
+    /// the limit, and always at the limit price, never better (ADR-036). Stop orders fill when the
+    /// reference crosses the trigger, at that reference price: a buy at or above it, a sell at or
+    /// below it. A gap through the trigger fills at the observed price, not at the trigger.
     /// <para>
     /// The observation must be strictly later than the submission. Otherwise an order would fill at a
     /// price that was already known before the intent existed, which is the same look-ahead the replay
@@ -248,7 +295,8 @@ public sealed class PaperExecutionProvider : IExecutionProvider, IPaperMarketObs
         out decimal fillPrice)
     {
         fillPrice = 0m;
-        if (observation.EventTime.CompareTo(state.SubmittedAt) <= 0)
+        var threshold = state.EarliestFillOpen ?? state.SubmittedAt;
+        if (observation.EventTime.CompareTo(threshold) <= 0)
         {
             return false;
         }
@@ -260,10 +308,30 @@ public sealed class PaperExecutionProvider : IExecutionProvider, IPaperMarketObs
             return true;
         }
 
-        var limit = state.LimitPrice!.Value;
-        var reached = state.Side == OrderSide.Buy ? referencePrice <= limit : referencePrice >= limit;
-        fillPrice = limit;
+        var price = state.LimitPrice!.Value;
+        if (state.Type == OrderType.Stop)
+        {
+            var crossed = state.Side == OrderSide.Buy
+                ? referencePrice >= price
+                : referencePrice <= price;
+            fillPrice = referencePrice;
+            return crossed;
+        }
+
+        var reached = state.Side == OrderSide.Buy ? referencePrice <= price : referencePrice >= price;
+        fillPrice = price;
         return reached;
+    }
+
+    private ObservationTape TapeFor(OrderOrigin origin)
+    {
+        if (!_tapes.TryGetValue(origin, out var tape))
+        {
+            tape = new ObservationTape();
+            _tapes.Add(origin, tape);
+        }
+
+        return tape;
     }
 
     private void Publish(ExecutionReport report)
@@ -281,16 +349,28 @@ public sealed class PaperExecutionProvider : IExecutionProvider, IPaperMarketObs
     {
         internal OrderId OrderId { get; } = submission.OrderId;
         internal OrderSide Side { get; } = submission.Side;
-        internal OrderType Type { get; } = submission.Type;
-        internal Price? LimitPrice { get; } = submission.LimitPrice;
+        internal OrderType Type { get; set; } = submission.Type;
+        internal OrderOrigin Origin { get; } = submission.Origin;
+        internal Price? LimitPrice { get; set; } = submission.LimitPrice;
 
         /// <summary>Only observations strictly later than this instant may fill the order.</summary>
         internal UtcInstant SubmittedAt { get; } = submittedAt;
+
+        /// <summary>Chart orders use the reference bar open instead of the simulated submission instant.</summary>
+        internal UtcInstant? EarliestFillOpen { get; } = submission.EarliestFillOpen;
 
         /// <summary>Exact remaining quantity; the sum of fills never exceeds the submitted quantity.</summary>
         internal decimal Remaining { get; set; } = submission.Quantity.Value;
 
         internal long NextFillSequence { get; set; }
+    }
+
+    /// <summary>One origin's latest price, leftover volume and last event time.</summary>
+    private sealed class ObservationTape
+    {
+        internal PaperMarketObservation? Current { get; set; }
+        internal decimal RemainingVolume { get; set; }
+        internal UtcInstant? LastEventTime { get; set; }
     }
 
     public override string ToString() =>

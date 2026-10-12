@@ -1,8 +1,11 @@
+using System.Net.Http.Headers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using VortexTrading.Application.MarketData;
 using VortexTrading.Application.Trading.Execution;
+using VortexTrading.Infrastructure.MarketData.Yahoo;
 using VortexTrading.Infrastructure.Trading.Session;
 using VortexTrading.Infrastructure.Persistence;
 
@@ -47,6 +50,14 @@ public static class DependencyInjection
             provider.GetRequiredService<IDbContextFactory<VortexTradingDbContext>>().CreateDbContext());
 
         services.AddSingleton<IOrderStore, PostgresOrderStore>();
+        services.AddScoped<IChartCloseSource, YahooChartCloseSource>();
+        services.AddHttpClient<YahooFinanceChartClient>(client =>
+        {
+            client.BaseAddress = new Uri("https://query1.finance.yahoo.com/");
+            client.Timeout = TimeSpan.FromSeconds(10);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("VortexTrading/1.0");
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        });
 
         services.AddHealthChecks()
             .AddDbContextCheck<VortexTradingDbContext>("postgresql", tags: ["ready"]);

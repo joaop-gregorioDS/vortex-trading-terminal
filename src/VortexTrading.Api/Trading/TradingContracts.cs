@@ -12,10 +12,43 @@ public sealed record OrderRequest
 {
     [JsonRequired] public Guid InstrumentId { get; init; }
     [JsonRequired] public required string Side { get; init; }
-    [JsonRequired] public required string Type { get; init; }
+    public string? Type { get; init; }
     [JsonRequired] public required string Quantity { get; init; }
     public string? LimitPrice { get; init; }
     public string? TimeInForce { get; init; }
+
+    /// <summary>"chart" rests on later chart closes. Absent or "session" keeps the simulated ticket.</summary>
+    public string? Origin { get; init; }
+
+    /// <summary>Optional bracket armed when this order fills. Prices are computed by the server.</summary>
+    public ProtectionRequest? Protection { get; init; }
+}
+
+/// <summary>Distances for an OCO bracket. Amounts travel as decimal strings. Unit is ticks, points or percent.</summary>
+public sealed record ProtectionRequest
+{
+    public string? Gain { get; init; }
+    public string? Loss { get; init; }
+    public string? Unit { get; init; }
+    public string? Trail { get; init; }
+    public string? BreakEven { get; init; }
+}
+
+public sealed record InstrumentActionRequest
+{
+    [JsonRequired] public Guid InstrumentId { get; init; }
+}
+
+public sealed record ReviseOrderRequest
+{
+    [JsonRequired] public required string Price { get; init; }
+}
+
+public sealed record ProtectionLevelRequest
+{
+    [JsonRequired] public Guid InstrumentId { get; init; }
+    [JsonRequired] public required string Price { get; init; }
+    public string? Origin { get; init; }
 }
 
 public sealed record FillResponse(string ExecutionId, string Quantity, string Price, string ExecutedAt);
@@ -25,6 +58,7 @@ public sealed record OrderResponse(
     string InstrumentId,
     string Side,
     string Type,
+    string Origin,
     string Quantity,
     string? LimitPrice,
     string TimeInForce,
@@ -35,7 +69,8 @@ public sealed record OrderResponse(
     string CreatedAt,
     string LastUpdatedAt,
     string? CompletedAt,
-    IReadOnlyList<FillResponse> Fills);
+    IReadOnlyList<FillResponse> Fills,
+    string? Role = null);
 
 public sealed record PositionResponse(
     string InstrumentId,

@@ -18,6 +18,11 @@ namespace VortexTrading.Application.Trading.Paper;
 /// never fill it. <see cref="AvailableVolume"/> is consumed by fills in arrival order and is finite
 /// on purpose: it is what makes partial fills reachable.
 /// </para>
+/// <para>
+/// <see cref="Origin"/> selects the tape. A session observation matches only session orders, and a
+/// chart observation matches only chart orders. Each tape keeps its own event time, so a chart close
+/// and a simulated print do not have to share one clock.
+/// </para>
 /// </remarks>
 public sealed class PaperMarketObservation
 {
@@ -25,9 +30,10 @@ public sealed class PaperMarketObservation
     public InstrumentId InstrumentId { get; }
     public Price ReferencePrice { get; }
     public Quantity AvailableVolume { get; }
+    public OrderOrigin Origin { get; }
 
     public PaperMarketObservation(UtcInstant? eventTime, InstrumentId? instrumentId,
-        Price? referencePrice, Quantity? availableVolume)
+        Price? referencePrice, Quantity? availableVolume, OrderOrigin origin = OrderOrigin.Session)
     {
         ArgumentNullException.ThrowIfNull(eventTime);
         ArgumentNullException.ThrowIfNull(instrumentId);
@@ -46,9 +52,15 @@ public sealed class PaperMarketObservation
                 "Available volume must be positive.");
         }
 
+        if (!Enum.IsDefined(origin))
+        {
+            throw new ArgumentOutOfRangeException(nameof(origin));
+        }
+
         EventTime = eventTime;
         InstrumentId = instrumentId;
         ReferencePrice = referencePrice;
         AvailableVolume = availableVolume;
+        Origin = origin;
     }
 }

@@ -15,10 +15,15 @@ public static class ChartSnapshotMapping
             throw new ChartTransportException();
 
         // Tokens have explicit meaning; no fallback to the demo interval or instrument.
-        var interval = request.Interval switch
+        var interval = request.Interval.ToLowerInvariant() switch
         {
             "1m" => CandleInterval.OneMinute,
             "5m" => CandleInterval.FiveMinutes,
+            "15m" => CandleInterval.FifteenMinutes,
+            "30m" => CandleInterval.ThirtyMinutes,
+            "1h" or "60m" => CandleInterval.OneHour,
+            "4h" => CandleInterval.FourHours,
+            "1d" => CandleInterval.OneDay,
             _ => throw new ChartTransportException()
         };
         var specifications = request.Indicators.Select<IndicatorRequest, IndicatorSpecification>(item => item switch
@@ -26,6 +31,10 @@ public static class ChartSnapshotMapping
             SmaRequest { Parameters: not null } s => new SmaSpecification(s.Parameters.Period),
             MacdRequest { Parameters: not null } m => new MacdSpecification(
                 m.Parameters.FastPeriod, m.Parameters.SlowPeriod, m.Parameters.SignalPeriod),
+            BollingerBandsRequest { Parameters: not null } b => new BollingerBandsSpecification(
+                b.Parameters.Period, b.Parameters.Multiplier),
+            RsiRequest { Parameters: not null } r => new RsiSpecification(r.Parameters.Period),
+            VwapRequest => new VwapSpecification(),
             _ => throw new ChartTransportException()
         }).ToArray();
         return new HistoricalChartRequest(new InstrumentId(request.InstrumentId), interval,
@@ -50,12 +59,25 @@ public static class ChartSnapshotMapping
         {
             FastPeriod = m.FastPeriod, SlowPeriod = m.SlowPeriod, SignalPeriod = m.SignalPeriod
         },
+        BollingerBandsSpecification b => new BollingerBandsParameters
+        {
+            Period = b.Period, Multiplier = b.StandardDeviationMultiplier
+        },
+        RsiSpecification r => new RsiParameters { Period = r.Period },
+        VwapSpecification => new VwapParameters(),
         _ => throw new InvalidOperationException("Unsupported server chart result.")
     };
 
     private static string Decimal(decimal value) => value.ToString(CultureInfo.InvariantCulture);
-    private static string Interval(CandleInterval interval) => interval == CandleInterval.OneMinute ? "1m"
-        : interval == CandleInterval.FiveMinutes ? "5m" : throw new InvalidOperationException("Unsupported server interval.");
+    private static string Interval(CandleInterval interval) =>
+        interval == CandleInterval.OneMinute ? "1m"
+        : interval == CandleInterval.FiveMinutes ? "5m"
+        : interval == CandleInterval.FifteenMinutes ? "15m"
+        : interval == CandleInterval.ThirtyMinutes ? "30m"
+        : interval == CandleInterval.OneHour ? "1h"
+        : interval == CandleInterval.FourHours ? "4h"
+        : interval == CandleInterval.OneDay ? "1d"
+        : throw new InvalidOperationException("Unsupported server interval.");
     private static string Time(UtcInstant time) => time.Value.UtcDateTime.ToString(
         "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", CultureInfo.InvariantCulture);
 }

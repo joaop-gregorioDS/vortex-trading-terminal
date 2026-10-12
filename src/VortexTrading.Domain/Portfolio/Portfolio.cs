@@ -75,12 +75,12 @@ public sealed class Portfolio : IEquatable<Portfolio>
     /// closed position stays in the portfolio: its realized result and its traded history remain.
     /// </remarks>
     public PortfolioFillResult Apply(InstrumentId? instrumentId, OrderFill? fill, OrderSide side,
-        int moneyScale = Position.DefaultMoneyScale)
+        int moneyScale = Position.DefaultMoneyScale, bool allowShort = false)
     {
         ArgumentNullException.ThrowIfNull(instrumentId);
         ArgumentNullException.ThrowIfNull(fill);
 
-        var applied = PositionFor(instrumentId, moneyScale).Apply(fill, side);
+        var applied = PositionFor(instrumentId, moneyScale).Apply(fill, side, allowShort);
         var positions = new Dictionary<InstrumentId, Position>(_positions)
         {
             [instrumentId] = applied.Position

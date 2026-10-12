@@ -1,9 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  brasiliaFromUnix,
+  formatChartCrosshair,
+  formatChartPrice,
+  formatChartTick,
   formatInstant,
   formatDateTime,
   formatMoney,
+  formatRatioPercent,
   formatSignedMoney,
   groupDecimal,
   isCancellable,
@@ -63,6 +68,42 @@ test("instants are shown as a clock and as a date without timezone drift", () =>
   assert.equal(formatInstant(null), "—");
   assert.equal(formatDateTime("2026-10-01T10:12:00.0000000Z"), "01/10 10:12:00");
   assert.equal(formatDateTime(null), "—");
+});
+
+test("a session ratio is shown as a short percent and money digits stay intact", () => {
+  assert.equal(formatRatioPercent("0.5"), "50%");
+  assert.equal(formatRatioPercent("0.125"), "12,5%");
+  assert.equal(formatRatioPercent("1"), "100%");
+  assert.equal(formatRatioPercent("0"), "0%");
+  assert.equal(formatRatioPercent(null), "—");
+  assert.equal(formatRatioPercent("0.0002155275635806312562862206"), "0,02%");
+  assert.equal(formatRatioPercent("-0.021555"), "-2,16%");
+  assert.equal(formatRatioPercent("0.01996"), "2%");
+  assert.equal(
+    groupDecimal("1.000000000000000000000000001"),
+    "1,000000000000000000000000001",
+  );
+});
+
+test("chart prices use the same grouping as a quote", () => {
+  assert.equal(formatChartPrice(208835, 0), "208.835");
+  assert.equal(formatChartPrice(54.74, 2), "54,74");
+  assert.equal(formatChartPrice(5432.5, 1), "5.432,5");
+  assert.equal(formatChartPrice(-134, 0), "-134");
+});
+
+test("chart clocks are Brasília and do not follow the machine zone", () => {
+  const eighteenUtc = Date.parse("2026-10-01T18:00:00Z") / 1000;
+  assert.deepEqual(brasiliaFromUnix(eighteenUtc), { time: "15:00:00", date: "01/10/2026" });
+  assert.equal(formatChartCrosshair(eighteenUtc), "01/10/2026 15:00");
+  assert.equal(formatChartTick(eighteenUtc, 3), "15:00");
+  assert.equal(formatChartTick(eighteenUtc, 4), "15:00:00");
+  assert.equal(formatChartTick(eighteenUtc, 2), "01/10");
+
+  const afterMidnightUtc = Date.parse("2026-10-01T02:15:00Z") / 1000;
+  assert.equal(formatChartCrosshair(afterMidnightUtc), "30/09/2026 23:15");
+  assert.equal(formatChartTick(afterMidnightUtc, 0), "2026");
+  assert.equal(formatChartTick(afterMidnightUtc, 1), "09/2026");
 });
 
 test("only live statuses are cancellable", () => {

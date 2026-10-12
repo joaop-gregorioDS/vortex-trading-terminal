@@ -40,6 +40,13 @@ namespace VortexTrading.Infrastructure.Migrations
                     b.Property<decimal?>("LimitPrice")
                         .HasColumnType("numeric");
 
+                    b.Property<string>("Origin")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("Session");
+
                     b.Property<decimal>("Quantity")
                         .HasColumnType("numeric");
 

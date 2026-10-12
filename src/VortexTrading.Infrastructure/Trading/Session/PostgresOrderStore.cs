@@ -70,6 +70,15 @@ public sealed class PostgresOrderStore : IOrderStore
         }
     }
 
+    public async Task DeleteAllAsync(CancellationToken cancellationToken = default)
+    {
+        await using var context = await _contexts.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await context.Database.ExecuteSqlRawAsync("DELETE FROM trading.order_fills", cancellationToken)
+            .ConfigureAwait(false);
+        await context.Database.ExecuteSqlRawAsync("DELETE FROM trading.orders", cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     private static async Task WriteAsync(VortexTradingDbContext context, IReadOnlyCollection<Order> orders,
         CancellationToken cancellationToken)
     {

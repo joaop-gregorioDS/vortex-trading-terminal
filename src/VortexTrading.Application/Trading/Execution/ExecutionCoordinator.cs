@@ -96,9 +96,17 @@ public sealed class ExecutionCoordinator
     /// <summary>Orders owned by this scope, in the order they were submitted.</summary>
     public IReadOnlyList<Order> Orders => _orders.Values.ToArray();
 
+    /// <summary>Drops every tracked order. The provider book must be cleared in the same reset.</summary>
+    public void DiscardTrackedOrders()
+    {
+        _workflows.Clear();
+        _orders.Clear();
+        _submitted.Clear();
+    }
+
     /// <summary>Submits one created order and applies any fact the provider publishes immediately.</summary>
     public async Task SubmitOrderAsync(Order? order, UtcInstant? submittedAt = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, UtcInstant? earliestFillOpen = null)
     {
         ArgumentNullException.ThrowIfNull(order);
 
@@ -120,7 +128,7 @@ public sealed class ExecutionCoordinator
         }
 
         var at = submittedAt ?? _clock.Now();
-        var workflow = new OrderExecutionWorkflow(order, _provider);
+        var workflow = new OrderExecutionWorkflow(order, _provider, earliestFillOpen);
 
         // Register before submitting: the provider may publish a fact during the command, and routing
         // must already know the owner.
@@ -151,6 +159,47 @@ public sealed class ExecutionCoordinator
         }
     }
 
+    /// <summary>
+    /// Records an order that was rejected prior to submission (e.g. by pre-trade risk evaluation)
+    /// into this execution scope and persists it.
+    /// </summary>
+    public async Task RecordPreTradeRejectedOrderAsync(Order? order, UtcInstant? rejectedAt = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(order);
+
+        if (order.InstrumentId != _instrumentId)
+        {
+            throw new InvalidOperationException("Order targets a different instrument than this scope.");
+        }
+
+        if (order.Status != OrderStatus.Rejected)
+        {
+            throw new InvalidOperationException("Order must be in Rejected status to be recorded as a pre-trade rejection.");
+        }
+
+        if (_orders.ContainsKey(order.Id))
+        {
+            throw new InvalidOperationException("Order is already owned by this execution scope.");
+        }
+
+        if (_submitted.Contains(order.Id))
+        {
+            throw new InvalidOperationException("Order was already submitted in this execution scope.");
+        }
+
+        var at = rejectedAt ?? _clock.Now();
+        _orders.Add(order.Id, order);
+        _submitted.Add(order.Id);
+
+        await PersistAsync(cancellationToken).ConfigureAwait(false);
+
+        _logger?.LogInformation(
+            "Order recorded as pre-trade rejected {OrderId} {Side} {Type} {Quantity} reason {Reason} at {RejectedAt}",
+            order.Id.Value, order.Side, order.Type, order.Quantity.Value,
+            order.RejectionReason, at.Value);
+    }
+
     /// <summary>Requests cancellation through the order's workflow and applies the outcome.</summary>
     public async Task RequestCancellationAsync(OrderId? orderId, UtcInstant? requestedAt = null,
         CancellationToken cancellationToken = default)
@@ -173,7 +222,7 @@ public sealed class ExecutionCoordinator
     /// The application time for the produced facts is the observation's event time, because that is
     /// the instant the facts belong to. The caller supplies it; no clock is consulted here.
     /// </remarks>
-    public void Observe(PaperMarketObservation? observation)
+    public void Observe(PaperMarketObservation? observation, UtcInstant? appliedAt = null)
     {
         ArgumentNullException.ThrowIfNull(observation);
 
@@ -182,7 +231,10 @@ public sealed class ExecutionCoordinator
             throw new InvalidOperationException("Observation targets a different instrument than this scope.");
         }
 
-        DrainReports(observation.EventTime);
+        // Chart closes carry the bar open so matching can ignore the candle that was already open.
+        // The order lifecycle stays on the simulated clock, which the caller passes as appliedAt.
+        var at = appliedAt ?? observation.EventTime;
+        DrainReports(at);
         if (_provider is IPaperMarketObserver observer)
         {
             observer.Observe(observation);
@@ -193,7 +245,7 @@ public sealed class ExecutionCoordinator
                 "The execution provider of this scope cannot consume market observations.");
         }
 
-        var applied = DrainReports(observation.EventTime);
+        var applied = DrainReports(at);
 
         // Persist only when the observation actually changed something. Observations arrive on a timer
         // and most ticks fill nothing, so an unconditional save would rewrite the whole book every tick.

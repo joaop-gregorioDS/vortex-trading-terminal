@@ -53,3 +53,28 @@ test("backend series names are checked without renaming", () => {
   input.indicators[0].series[0].name = "SMA";
   assert.throws(() => adaptSnapshot(input));
 });
+test("multi-timeframe intervals (5m, 15m, 1h, 1d) are adapted correctly", () => {
+  const fiveMinTime = (idx) => `2026-10-01T10:${String(idx * 5).padStart(2, "0")}:00.0000000Z`;
+  const fiveMinSnapshot = {
+    context: { interval: "5m", barCount: 2 },
+    candles: [0, 1].map((i) => ({
+      openTime: fiveMinTime(i),
+      closeTime: fiveMinTime(i + 1),
+      open: "54.80",
+      high: "55.10",
+      low: "54.70",
+      close: "55.00",
+      volume: "5000",
+    })),
+    indicators: [
+      { id: "sma", parameters: { period: 2 }, series: [{ name: "Value", points: [{ time: fiveMinTime(2), value: "54.90" }] }] },
+      { id: "macd", parameters: { fastPeriod: 1, slowPeriod: 2, signalPeriod: 2 }, series: [
+        { name: "MACD", points: [{ time: fiveMinTime(2), value: "0.10" }] }, { name: "Signal", points: [] }, { name: "Histogram", points: [] },
+      ] },
+    ],
+  };
+  const adapted = adaptSnapshot(fiveMinSnapshot);
+  assert.equal(adapted.candles.length, 2);
+  assert.equal(adapted.candles[1].time - adapted.candles[0].time, 300);
+});
+

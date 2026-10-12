@@ -1,4 +1,5 @@
 using System.Globalization;
+using VortexTrading.Application.Trading;
 using VortexTrading.Domain.Common.Time;
 using VortexTrading.Domain.Markets;
 using VortexTrading.Domain.Portfolio;
@@ -10,6 +11,14 @@ namespace VortexTrading.Api.Trading;
 public sealed class TradingTransportException : Exception
 {
     public TradingTransportException(string message) : base(message)
+    {
+    }
+}
+
+/// <summary>Raised when the request names an instrument the session does not trade. Always a 404.</summary>
+public sealed class UnknownInstrumentException : Exception
+{
+    public UnknownInstrumentException() : base("The requested instrument is not traded by this session.")
     {
     }
 }
@@ -27,8 +36,9 @@ public static class TradingMapping
     /// The creation instant is supplied by the caller because it must be the simulation's instant, not
     /// the machine clock (ADR-033).
     /// </remarks>
-    public static Order ToOrder(OrderRequest? request, InstrumentId sessionInstrument, UtcInstant createdAt)
+    public static Order ToOrder(OrderRequest? request, Func<InstrumentId, bool> isTraded, UtcInstant createdAt)
     {
+        ArgumentNullException.ThrowIfNull(isTraded);
         ArgumentNullException.ThrowIfNull(createdAt);
 
         if (request is null || request.InstrumentId == Guid.Empty)
@@ -37,9 +47,9 @@ public static class TradingMapping
         }
 
         var instrumentId = new InstrumentId(request.InstrumentId);
-        if (instrumentId != sessionInstrument)
+        if (!isTraded(instrumentId))
         {
-            throw new TradingTransportException("The requested instrument is not traded by this session.");
+            throw new UnknownInstrumentException();
         }
 
         var side = request.Side switch
@@ -66,7 +76,39 @@ public static class TradingMapping
         };
     }
 
-    public static OrderResponse ToResponse(Order? order)
+    public static ProtectionSpec? ParseProtection(ProtectionRequest? request)
+    {
+        if (request is null)
+        {
+            return null;
+        }
+
+        var unit = request.Unit?.Trim().ToLowerInvariant() switch
+        {
+            "ticks" => ProtectionUnit.Ticks,
+            "points" => ProtectionUnit.Points,
+            "percent" => ProtectionUnit.Percent,
+            _ => throw new TradingTransportException("Protection unit must be 'ticks', 'points' or 'percent'.")
+        };
+        var spec = new ProtectionSpec(
+            ParseDecimal(request.Gain, "gain"),
+            ParseDecimal(request.Loss, "loss"),
+            unit,
+            string.IsNullOrWhiteSpace(request.Trail) ? null : ParseDecimal(request.Trail, "trail"),
+            string.IsNullOrWhiteSpace(request.BreakEven) ? null : ParseDecimal(request.BreakEven, "breakEven"));
+        try
+        {
+            spec.Validate();
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            throw new TradingTransportException("Protection gain, loss, trail and break-even must be positive.");
+        }
+
+        return spec;
+    }
+
+    public static OrderResponse ToResponse(Order? order, string? role = null)
     {
         ArgumentNullException.ThrowIfNull(order);
 
@@ -76,7 +118,8 @@ public static class TradingMapping
             order.Id.ToString(),
             order.InstrumentId.ToString(),
             order.Side == OrderSide.Buy ? "buy" : "sell",
-            order.Type == OrderType.Market ? "market" : "limit",
+            TypeName(order.Type),
+            order.Origin == OrderOrigin.Chart ? "chart" : "session",
             Decimal(order.Quantity.Value),
             order.LimitPrice is null ? null : Decimal(order.LimitPrice.Value),
             order.TimeInForce.ToString().ToLowerInvariant(),
@@ -88,47 +131,62 @@ public static class TradingMapping
             Instant(order.LastUpdatedAt),
             order.CompletedAt is null ? null : Instant(order.CompletedAt),
             order.Fills.Select(fill => new FillResponse(fill.ExecutionId.ToString(),
-                Decimal(fill.Quantity.Value), Decimal(fill.Price.Value), Instant(fill.ExecutedAt))).ToArray());
+                Decimal(fill.Quantity.Value), Decimal(fill.Price.Value), Instant(fill.ExecutedAt))).ToArray(),
+            role);
     }
 
-    public static PortfolioResponse ToResponse(Portfolio? portfolio, InstrumentId sessionInstrument,
-        Price? mark, decimal cash)
+    public static PortfolioResponse ToResponse(Portfolio? portfolio,
+        IReadOnlyDictionary<InstrumentId, Price> marks,
+        IReadOnlyDictionary<InstrumentId, decimal> pointValues,
+        decimal cash)
     {
         ArgumentNullException.ThrowIfNull(portfolio);
+        ArgumentNullException.ThrowIfNull(marks);
+        ArgumentNullException.ThrowIfNull(pointValues);
 
-        // Only the session instrument has a price. A position without a mark reports no unrealized
-        // result rather than a fabricated one: marking it at zero would show its whole cost as loss.
-        var marks = mark is null
-            ? new Dictionary<InstrumentId, Price>()
-            : new Dictionary<InstrumentId, Price> { [sessionInstrument] = mark };
-
+        // Realized and unrealized results are money. Average cost stays the traded price. A position
+        // without a mark contributes no unrealized result: marking it at zero would show its cost as a loss.
+        var realized = 0m;
+        var unrealized = 0m;
         var positions = portfolio.Positions.Values
             .OrderBy(position => position.InstrumentId.Value)
-            .Select(position => new PositionResponse(
-                position.InstrumentId.ToString(),
-                Decimal(position.Quantity),
-                Decimal(position.TotalCost),
-                Decimal(position.AverageCost),
-                Decimal(position.RealizedProfitAndLoss),
-                Decimal(position.InstrumentId == sessionInstrument && mark is not null
-                    ? position.UnrealizedProfitAndLoss(mark)
-                    : 0m),
-                Decimal(position.InstrumentId == sessionInstrument && mark is not null
-                    ? position.TotalProfitAndLoss(mark)
-                    : position.RealizedProfitAndLoss),
-                position.IsClosed,
-                position.UpdatedAt is null ? null : Instant(position.UpdatedAt)))
+            .Select(position =>
+            {
+                var point = pointValues.TryGetValue(position.InstrumentId, out var value) ? value : 1m;
+                var positionRealized = Scale(position.RealizedProfitAndLoss, point);
+                realized += positionRealized;
+                decimal positionUnrealized = 0m;
+                if (marks.TryGetValue(position.InstrumentId, out var mark))
+                {
+                    positionUnrealized = Scale(position.UnrealizedProfitAndLoss(mark), point);
+                    unrealized += positionUnrealized;
+                }
+
+                return new PositionResponse(
+                    position.InstrumentId.ToString(),
+                    Decimal(position.Quantity),
+                    Decimal(position.TotalCost),
+                    Decimal(position.AverageCost),
+                    Decimal(positionRealized),
+                    Decimal(positionUnrealized),
+                    Decimal(positionRealized + positionUnrealized),
+                    position.IsClosed,
+                    position.UpdatedAt is null ? null : Instant(position.UpdatedAt));
+            })
             .ToArray();
 
         return new PortfolioResponse(
             Decimal(cash),
-            Decimal(portfolio.Equity(marks, cash)),
+            Decimal(cash + realized + unrealized),
             Decimal(portfolio.TotalCost),
-            Decimal(portfolio.RealizedProfitAndLoss),
-            Decimal(portfolio.UnrealizedProfitAndLoss(marks)),
-            Decimal(portfolio.TotalProfitAndLoss(marks)),
+            Decimal(realized),
+            Decimal(unrealized),
+            Decimal(realized + unrealized),
             positions);
     }
+
+    private static decimal Scale(decimal amount, decimal pointValue) =>
+        pointValue == 1m ? amount : amount * pointValue;
 
     public static MarketResponse ToResponse(InstrumentId instrumentId, Price? lastPrice, UtcInstant? time,
         int restingOrderCount) => new(
@@ -142,7 +200,7 @@ public static class TradingMapping
             ? parsed
             : throw new TradingTransportException("A non-empty order id is required.");
 
-    private static decimal ParseDecimal(string? value, string field) =>
+    internal static decimal ParseDecimal(string? value, string field) =>
         decimal.TryParse(value, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
             CultureInfo.InvariantCulture, out var parsed)
             ? parsed
@@ -158,6 +216,14 @@ public static class TradingMapping
     /// <summary>Formats an instant in UTC for transport.</summary>
     public static string Instant(UtcInstant instant) =>
         instant.Value.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffffffZ", CultureInfo.InvariantCulture);
+
+    private static string TypeName(OrderType type) => type switch
+    {
+        OrderType.Market => "market",
+        OrderType.Limit => "limit",
+        OrderType.Stop => "stop",
+        _ => throw new TradingTransportException("The order carries an unsupported type.")
+    };
 
     private static string Status(OrderStatus status) => status switch
     {

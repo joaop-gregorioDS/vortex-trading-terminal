@@ -33,7 +33,7 @@ public sealed class OrderExecutionWorkflow
     private bool _cancelledApplied;
     private bool _integrityFailed;
 
-    public OrderExecutionWorkflow(Order order, IExecutionProvider provider)
+    public OrderExecutionWorkflow(Order order, IExecutionProvider provider, UtcInstant? earliestFillOpen = null)
     {
         ArgumentNullException.ThrowIfNull(order);
         ArgumentNullException.ThrowIfNull(provider);
@@ -52,7 +52,8 @@ public sealed class OrderExecutionWorkflow
         _provider = provider;
         _providerKey = key;
         _submission = new OrderSubmission(order.Id, order.InstrumentId, order.Side, order.Type,
-            order.Quantity, order.LimitPrice, order.TimeInForce, order.CreatedAt);
+            order.Quantity, order.LimitPrice, order.TimeInForce, order.CreatedAt, order.Origin,
+            earliestFillOpen);
     }
 
     /// <summary>Submits the retained intent; completion does not apply the initial business report.</summary>

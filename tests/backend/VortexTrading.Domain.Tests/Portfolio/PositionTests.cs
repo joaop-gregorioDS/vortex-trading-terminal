@@ -195,6 +195,47 @@ public sealed class PositionTests
         Assert.NotEqual(first, Position.Empty(Instrument));
     }
 
+    [Fact]
+    public void DayTradeSellOpensAShortAndACoverRealizesTheDifference()
+    {
+        var opened = Position.Empty(Instrument).Apply(Fill(2m, 100m, 0), OrderSide.Sell, allowShort: true);
+
+        Assert.Equal(-2m, opened.Position.Quantity);
+        Assert.Equal(-200m, opened.Position.TotalCost);
+        Assert.Equal(100m, opened.Position.AverageCost);
+        Assert.Equal(0m, opened.IgnoredQuantity);
+        Assert.Equal(20m, opened.Position.UnrealizedProfitAndLoss(new Price(90m)));
+
+        var covered = opened.Position.Apply(Fill(2m, 90m, 1), OrderSide.Buy, allowShort: true);
+        Assert.True(covered.Position.IsClosed);
+        Assert.Equal(0m, covered.Position.TotalCost);
+        Assert.Equal(20m, covered.Position.RealizedProfitAndLoss);
+    }
+
+    [Fact]
+    public void DayTradeSellLargerThanTheLongFlipsThePosition()
+    {
+        var position = Position.Empty(Instrument).Apply(Fill(2m, 100m, 0), OrderSide.Buy).Position;
+
+        var flipped = position.Apply(Fill(5m, 110m, 1), OrderSide.Sell, allowShort: true);
+
+        Assert.Equal(5m, flipped.AppliedQuantity);
+        Assert.Equal(0m, flipped.IgnoredQuantity);
+        Assert.Equal(-3m, flipped.Position.Quantity);
+        Assert.Equal(110m, flipped.Position.AverageCost);
+        Assert.Equal(20m, flipped.Position.RealizedProfitAndLoss);
+    }
+
+    [Fact]
+    public void LongOnlySellStillDropsTheExcess()
+    {
+        var position = Position.Empty(Instrument).Apply(Fill(2m, 100m, 0), OrderSide.Buy).Position;
+        var result = position.Apply(Fill(5m, 110m, 1), OrderSide.Sell);
+
+        Assert.True(result.Position.IsClosed);
+        Assert.Equal(3m, result.IgnoredQuantity);
+    }
+
     private static OrderFill Fill(decimal quantity, decimal price, int minuteOffset) =>
         new(ExecutionId.From(Guid.NewGuid()), OrderId.From(Guid.NewGuid()), new Quantity(quantity),
             new Price(price), Minutes(minuteOffset));

@@ -295,6 +295,154 @@ public sealed class PaperExecutionProviderTests
     }
 
     [Fact]
+    public async Task BuyStopRestsThroughTheReferenceCloseAndFillsAtALaterCrossingClose()
+    {
+        using var provider = new PaperExecutionProvider(Instrument);
+        var reference = Instant(2026, 10, 9, 14, 0, 0);
+        provider.Observe(Observation(reference, 209067m, 1000m, OrderOrigin.Chart));
+
+        var order = Order.CreateStop(OrderId.From(Guid.NewGuid()), Instrument, OrderSide.Buy,
+            new Quantity(1m), new Price(209335m), TimeInForce.GTC, reference);
+        await provider.SubmitAsync(Submission(order), reference, Token);
+        Assert.Equal(ExecutionReportKind.Accepted, Assert.Single(await Collect(provider, 1)).Kind);
+        Assert.Equal(1, provider.RestingOrderCount);
+
+        provider.Observe(Observation(Instant(2026, 10, 9, 14, 1, 0), 209200m, 1000m, OrderOrigin.Chart));
+        Assert.Empty(await Collect(provider, 1, TimeSpan.FromMilliseconds(150)));
+
+        provider.Observe(Observation(Instant(2026, 10, 9, 14, 2, 0), 209410m, 1000m, OrderOrigin.Chart));
+        var fill = Assert.Single(await Collect(provider, 1));
+        Assert.Equal(order.Id, fill.OrderId);
+        Assert.Equal(209410m, fill.Fill!.Price.Value);
+        Assert.Equal(0, provider.RestingOrderCount);
+    }
+
+    [Fact]
+    public async Task ChartBuyLimitFillsAtTheOrderPriceWhenALaterCloseTouchesIt()
+    {
+        using var provider = new PaperExecutionProvider(Instrument);
+        var submitted = Instant(2026, 10, 9, 14, 0, 0);
+        var order = Order.CreateLimit(OrderId.From(Guid.NewGuid()), Instrument, OrderSide.Buy,
+            new Quantity(3m), new Price(100m), TimeInForce.GTC, submitted, OrderOrigin.Chart);
+        await provider.SubmitAsync(Submission(order), submitted, Token);
+        await Collect(provider, 1);
+
+        provider.Observe(Observation(Instant(2026, 10, 9, 14, 1, 0), 100.50m, 1000m, OrderOrigin.Chart));
+        Assert.Empty(await Collect(provider, 1, TimeSpan.FromMilliseconds(150)));
+
+        provider.Observe(Observation(Instant(2026, 10, 9, 14, 2, 0), 99.25m, 1000m, OrderOrigin.Chart));
+        var fill = Assert.Single(await Collect(provider, 1));
+        Assert.Equal(100m, fill.Fill!.Price.Value);
+        Assert.Equal(3m, fill.Fill.Quantity.Value);
+    }
+
+    [Fact]
+    public async Task SellStopFillsAtTheCloseThatCrossesBelowTheTrigger()
+    {
+        using var provider = new PaperExecutionProvider(Instrument);
+        var order = Order.CreateStop(OrderId.From(Guid.NewGuid()), Instrument, OrderSide.Sell,
+            new Quantity(1m), new Price(100m), TimeInForce.GTC, Start);
+        await provider.SubmitAsync(Submission(order), Start, Token);
+        await Collect(provider, 1);
+
+        provider.Observe(Observation(Minutes(1), 100.50m, 1000m, OrderOrigin.Chart));
+        Assert.Empty(await Collect(provider, 1, TimeSpan.FromMilliseconds(150)));
+
+        provider.Observe(Observation(Minutes(2), 97.50m, 1000m, OrderOrigin.Chart));
+        var fill = Assert.Single(await Collect(provider, 1));
+        Assert.Equal(97.50m, fill.Fill!.Price.Value);
+    }
+
+    [Fact]
+    public async Task SessionAndChartTapesDoNotFillEachOtherOrShareAClock()
+    {
+        using var provider = new PaperExecutionProvider(Instrument);
+        var sessionOrder = LimitOrder(OrderSide.Buy, 5m, 100m);
+        var chartStop = Order.CreateStop(OrderId.From(Guid.NewGuid()), Instrument, OrderSide.Buy,
+            new Quantity(2m), new Price(110m), TimeInForce.GTC, Start);
+        await provider.SubmitAsync(Submission(sessionOrder), Start, Token);
+        await provider.SubmitAsync(Submission(chartStop), Start, Token);
+        await Collect(provider, 2);
+
+        // A chart close that would reach the session limit leaves both orders resting.
+        provider.Observe(Observation(Instant(2026, 10, 9, 12, 0, 0), 90m, 1m, OrderOrigin.Chart));
+        Assert.Empty(await Collect(provider, 1, TimeSpan.FromMilliseconds(150)));
+        Assert.Equal(2, provider.RestingOrderCount);
+        Assert.Equal(0m, provider.AvailableVolume);
+
+        // A later session print, earlier on the wall clock than the chart close, would cross the
+        // stop and must not fill it. The two tapes do not order their clocks against each other.
+        provider.Observe(Observation(Minutes(1), 120m, 1000m));
+        Assert.Empty(await Collect(provider, 1, TimeSpan.FromMilliseconds(150)));
+        Assert.Equal(2, provider.RestingOrderCount);
+        Assert.Equal(1000m, provider.AvailableVolume);
+
+        provider.Observe(Observation(Instant(2026, 10, 9, 12, 1, 0), 112.50m, 10m, OrderOrigin.Chart));
+        var chartFill = Assert.Single(await Collect(provider, 1));
+        Assert.Equal(chartStop.Id, chartFill.OrderId);
+        Assert.Equal(112.50m, chartFill.Fill!.Price.Value);
+        Assert.Equal(1000m, provider.AvailableVolume);
+
+        provider.Observe(Observation(Minutes(2), 100m, 1000m));
+        var sessionFill = Assert.Single(await Collect(provider, 1));
+        Assert.Equal(sessionOrder.Id, sessionFill.OrderId);
+        Assert.Equal(100m, sessionFill.Fill!.Price.Value);
+        Assert.Equal(995m, provider.AvailableVolume);
+        Assert.Equal(0, provider.RestingOrderCount);
+    }
+
+    [Fact]
+    public async Task BuyStopFillAppliesThroughTheWorkflowAtTheCrossingClose()
+    {
+        using var provider = new PaperExecutionProvider(Instrument);
+        var order = Order.CreateStop(OrderId.From(Guid.NewGuid()), Instrument, OrderSide.Buy,
+            new Quantity(1m), new Price(110m), TimeInForce.GTC, Start);
+        var workflow = new OrderExecutionWorkflow(order, provider);
+
+        await workflow.SubmitOrderAsync(Start, Token);
+        Assert.True(workflow.ApplyReport(await Next(provider), Start));
+        provider.Observe(Observation(Minutes(1), 118.25m, 10m, OrderOrigin.Chart));
+        Assert.True(workflow.ApplyReport(await Next(provider), Minutes(1)));
+
+        Assert.Equal(OrderStatus.Filled, order.Status);
+        Assert.Equal(118.25m, Assert.Single(order.Fills).Price.Value);
+    }
+
+    [Fact]
+    public async Task EarliestFillOpenIgnoresTheReferenceBarEvenWhenItIsAfterSubmission()
+    {
+        using var provider = new PaperExecutionProvider(Instrument);
+        var reference = Instant(2026, 10, 9, 14, 0, 0);
+        var stop = Order.CreateStop(OrderId.From(Guid.NewGuid()), Instrument, OrderSide.Buy,
+            new Quantity(1m), new Price(110m), TimeInForce.GTC, Start);
+        var limit = Order.CreateLimit(OrderId.From(Guid.NewGuid()), Instrument, OrderSide.Buy,
+            new Quantity(2m), new Price(90m), TimeInForce.GTC, Start, OrderOrigin.Chart);
+        await provider.SubmitAsync(WithOpen(stop, reference), Start, Token);
+        await provider.SubmitAsync(WithOpen(limit, reference), Start, Token);
+        await Collect(provider, 2);
+
+        // Both closes are later than the simulated submit instant. Without the reference-bar guard
+        // the first would fill the limit and the second would fill the stop.
+        provider.Observe(Observation(reference, 80m, 1000m, OrderOrigin.Chart));
+        provider.Observe(Observation(reference, 120m, 1000m, OrderOrigin.Chart));
+        Assert.Empty(await Collect(provider, 1, TimeSpan.FromMilliseconds(150)));
+        Assert.Equal(2, provider.RestingOrderCount);
+
+        var limitBar = Instant(2026, 10, 9, 14, 1, 0);
+        provider.Observe(Observation(limitBar, 80m, 1000m, OrderOrigin.Chart));
+        var limitFill = Assert.Single(await Collect(provider, 1));
+        Assert.Equal(limit.Id, limitFill.OrderId);
+        Assert.Equal(90m, limitFill.Fill!.Price.Value);
+
+        var stopBar = Instant(2026, 10, 9, 14, 2, 0);
+        provider.Observe(Observation(stopBar, 115m, 1000m, OrderOrigin.Chart));
+        var stopFill = Assert.Single(await Collect(provider, 1));
+        Assert.Equal(stop.Id, stopFill.OrderId);
+        Assert.Equal(115m, stopFill.Fill!.Price.Value);
+        Assert.Equal(0, provider.RestingOrderCount);
+    }
+
+    [Fact]
     public async Task OutOfOrderObservationFailsInsteadOfRewritingHistory()
     {
         using var provider = new PaperExecutionProvider(Instrument);
@@ -384,14 +532,19 @@ public sealed class PaperExecutionProviderTests
 
     private static OrderSubmission Submission(Order order) =>
         new(order.Id, order.InstrumentId, order.Side, order.Type, order.Quantity, order.LimitPrice,
-            order.TimeInForce, order.CreatedAt);
+            order.TimeInForce, order.CreatedAt, order.Origin);
+
+    private static OrderSubmission WithOpen(Order order, UtcInstant earliestFillOpen) =>
+        new(order.Id, order.InstrumentId, order.Side, order.Type, order.Quantity, order.LimitPrice,
+            order.TimeInForce, order.CreatedAt, order.Origin, earliestFillOpen);
 
     private static Order LimitOrder(OrderSide side, decimal quantity, decimal limitPrice) =>
         Order.CreateLimit(OrderId.From(Guid.NewGuid()), Instrument, side, new Quantity(quantity),
             new Price(limitPrice), TimeInForce.GTC, Start);
 
-    private static PaperMarketObservation Observation(UtcInstant time, decimal price, decimal volume) =>
-        new(time, Instrument, new Price(price), new Quantity(volume));
+    private static PaperMarketObservation Observation(UtcInstant time, decimal price, decimal volume,
+        OrderOrigin origin = OrderOrigin.Session) =>
+        new(time, Instrument, new Price(price), new Quantity(volume), origin);
 
     private static IReadOnlyList<ExecutionReport> Empty { get; } = [];
 

@@ -34,6 +34,11 @@ internal sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(order => order.Side).HasConversion<string>().HasMaxLength(16).IsRequired();
         builder.Property(order => order.Type).HasConversion<string>().HasMaxLength(16).IsRequired();
         builder.Property(order => order.TimeInForce).HasConversion<string>().HasMaxLength(16).IsRequired();
+        builder.Property(order => order.Origin)
+            .HasConversion<string>()
+            .HasMaxLength(16)
+            .IsRequired()
+            .HasDefaultValue(OrderOrigin.Session);
         builder.Property(order => order.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
 
         builder.Property(order => order.RejectionReason)

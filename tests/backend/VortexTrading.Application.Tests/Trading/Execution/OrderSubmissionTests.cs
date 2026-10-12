@@ -31,6 +31,7 @@ public sealed class OrderSubmissionTests
         Assert.Same(Amount, submission.Quantity);
         Assert.Same(price, submission.LimitPrice);
         Assert.Equal(TimeInForce.GTC, submission.TimeInForce);
+        Assert.Equal(OrderOrigin.Session, submission.Origin);
         Assert.Same(Created, submission.CreatedAt);
     }
 
@@ -53,7 +54,7 @@ public sealed class OrderSubmissionTests
     [InlineData("side", -1)]
     [InlineData("side", 2)]
     [InlineData("type", -1)]
-    [InlineData("type", 2)]
+    [InlineData("type", 3)]
     [InlineData("timeInForce", -1)]
     [InlineData("timeInForce", 1)]
     public void RejectsUndefinedIntentEnums(string parameter, int value)
@@ -85,6 +86,37 @@ public sealed class OrderSubmissionTests
             new OrderSubmission(Id, Instrument, OrderSide.Buy, OrderType.Limit, Amount, null, TimeInForce.GTC, Created));
 
         Assert.Equal("limitPrice", error.ParamName);
+    }
+
+    [Fact]
+    public void StopRequiresAPositiveTriggerAndKeepsTheChartOrigin()
+    {
+        var missing = Assert.Throws<ArgumentNullException>(() =>
+            new OrderSubmission(Id, Instrument, OrderSide.Buy, OrderType.Stop, Amount, null,
+                TimeInForce.GTC, Created, OrderOrigin.Chart));
+        Assert.Equal("limitPrice", missing.ParamName);
+
+        var zero = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new OrderSubmission(Id, Instrument, OrderSide.Sell, OrderType.Stop, Amount, new Price(0m),
+                TimeInForce.GTC, Created, OrderOrigin.Chart));
+        Assert.Equal("limitPrice", zero.ParamName);
+
+        var submission = new OrderSubmission(Id, Instrument, OrderSide.Buy, OrderType.Stop, Amount, Limit,
+            TimeInForce.GTC, Created, OrderOrigin.Chart);
+        Assert.Equal(OrderOrigin.Chart, submission.Origin);
+        Assert.Same(Limit, submission.LimitPrice);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(2)]
+    public void RejectsUndefinedOrigin(int origin)
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new OrderSubmission(Id, Instrument, OrderSide.Buy, OrderType.Market, Amount, null,
+                TimeInForce.GTC, Created, (OrderOrigin)origin));
+
+        Assert.Equal("origin", error.ParamName);
     }
 
     [Fact]
@@ -138,7 +170,7 @@ public sealed class OrderSubmissionTests
             Assert.NotEqual(typeof(Order), field.FieldType);
             Assert.False(typeof(System.Collections.IEnumerable).IsAssignableFrom(field.FieldType));
         });
-        Assert.Equal(8, type.GetProperties().Length);
+        Assert.Equal(10, type.GetProperties().Length);
     }
 
     [Fact]

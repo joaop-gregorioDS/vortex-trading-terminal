@@ -20,9 +20,17 @@ public sealed class OrderSubmission
     public Price? LimitPrice { get; }
     public TimeInForce TimeInForce { get; }
     public UtcInstant CreatedAt { get; }
+    public OrderOrigin Origin { get; }
+
+    /// <summary>
+    /// Chart orders ignore closes whose bar opened at or before this instant. Session orders leave it
+    /// empty and keep using the submission instant.
+    /// </summary>
+    public UtcInstant? EarliestFillOpen { get; }
 
     public OrderSubmission(OrderId? orderId, InstrumentId? instrumentId, OrderSide side, OrderType type,
-        Quantity? quantity, Price? limitPrice, TimeInForce timeInForce, UtcInstant? createdAt)
+        Quantity? quantity, Price? limitPrice, TimeInForce timeInForce, UtcInstant? createdAt,
+        OrderOrigin origin = OrderOrigin.Session, UtcInstant? earliestFillOpen = null)
     {
         ArgumentNullException.ThrowIfNull(orderId);
         ArgumentNullException.ThrowIfNull(instrumentId);
@@ -44,6 +52,11 @@ public sealed class OrderSubmission
             throw new ArgumentOutOfRangeException(nameof(timeInForce));
         }
 
+        if (!Enum.IsDefined(origin))
+        {
+            throw new ArgumentOutOfRangeException(nameof(origin));
+        }
+
         if (quantity.Value <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(quantity), "Submitted quantity must be positive.");
@@ -54,12 +67,13 @@ public sealed class OrderSubmission
             throw new ArgumentException("Market submission must not contain a limit price.", nameof(limitPrice));
         }
 
-        if (type == OrderType.Limit)
+        if (type is OrderType.Limit or OrderType.Stop)
         {
             ArgumentNullException.ThrowIfNull(limitPrice);
             if (limitPrice.Value <= 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(limitPrice), "Limit price must be positive.");
+                throw new ArgumentOutOfRangeException(nameof(limitPrice),
+                    type == OrderType.Stop ? "Stop price must be positive." : "Limit price must be positive.");
             }
         }
 
@@ -71,5 +85,7 @@ public sealed class OrderSubmission
         LimitPrice = limitPrice;
         TimeInForce = timeInForce;
         CreatedAt = createdAt;
+        Origin = origin;
+        EarliestFillOpen = earliestFillOpen;
     }
 }

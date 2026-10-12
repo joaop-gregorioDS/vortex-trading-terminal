@@ -1,5 +1,7 @@
 # Architecture Baseline
 
+O estágio atual do produto está no [README](../../README.md). Este documento permanece o baseline da TASK 0.0.
+
 Baseline aprovado na TASK 0.0 e materializado estruturalmente na TASK 0.1, em 2026-10-01. Docker Engine com Linux containers foi validado na TASK 0.0-A. Este documento descreve a direção arquitetural; componentes futuros permanecem sem implementação.
 
 ## Modular Monolith

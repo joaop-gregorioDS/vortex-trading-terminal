@@ -30,4 +30,7 @@ public interface IOrderStore
 
     /// <summary>Loads every stored order with its fills, oldest first.</summary>
     Task<IReadOnlyList<Order>> LoadAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Removes every stored order and fill. Used to restart the single demonstration account.</summary>
+    Task DeleteAllAsync(CancellationToken cancellationToken = default);
 }

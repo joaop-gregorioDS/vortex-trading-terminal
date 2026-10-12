@@ -3,7 +3,24 @@ export type MacdRequest = {
   id: "macd";
   parameters: { fastPeriod: number; slowPeriod: number; signalPeriod: number };
 };
-export type IndicatorRequest = SmaRequest | MacdRequest;
+export type BollingerBandsRequest = {
+  id: "bollinger-bands";
+  parameters: { period: number; multiplier: number };
+};
+export type RsiRequest = {
+  id: "rsi";
+  parameters: { period: number };
+};
+export type VwapRequest = {
+  id: "vwap";
+  parameters?: Record<string, never>;
+};
+export type IndicatorRequest =
+  | SmaRequest
+  | MacdRequest
+  | BollingerBandsRequest
+  | RsiRequest
+  | VwapRequest;
 export type ChartSnapshotRequest = {
   instrumentId: string;
   interval: "1m";

@@ -2,8 +2,11 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpLogging;
 using Microsoft.Extensions.Options;
+using Microsoft.OpenApi;
 using VortexTrading.Api.Configuration;
 using VortexTrading.Api.Charts;
+using VortexTrading.Api.Market;
+using VortexTrading.Api.Reports;
 using VortexTrading.Api.Trading;
 using VortexTrading.Application;
 using VortexTrading.Infrastructure;
@@ -19,7 +22,19 @@ builder.Services.AddInfrastructure(builder.Configuration);
 // than a market.
 builder.Services.AddPaperTradingSession(builder.Configuration);
 if (builder.Environment.IsDevelopment())
+{
     builder.Services.AddDevelopmentHistoricalCharts();
+    builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddSwaggerGen(options =>
+    {
+        options.SwaggerDoc("v1", new OpenApiInfo
+        {
+            Title = "Vortex Trading Terminal",
+            Version = "v1",
+            Description = "Pregão simulado de day trade. A conta de demonstração é compartilhada."
+        });
+    });
+}
 
 builder.Services
     .AddOptions<VortexTradingOptions>()
@@ -56,9 +71,21 @@ app.UseExceptionHandler(new ExceptionHandlerOptions
 });
 app.UseStatusCodePages();
 if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "Vortex Trading Terminal");
+        options.DocumentTitle = "Vortex Trading Terminal";
+    });
     app.MapHistoricalChartSnapshots();
+}
 
 app.MapTradingEndpoints();
+app.MapMarketQuotesEndpoints();
+app.MapYahooHistoryEndpoints();
+app.MapReportEndpoints();
+app.MapTerminalEndpoints();
 
 app.MapHealthChecks("/health")
     .WithMetadata(new HttpMethodMetadata([HttpMethods.Get]));

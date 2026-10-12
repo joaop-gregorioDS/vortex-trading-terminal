@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using VortexTrading.Application.Risk;
 using VortexTrading.Infrastructure.Trading.Session;
 
 namespace VortexTrading.Api.Trading;
@@ -26,9 +27,11 @@ public static class TradingComposition
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
+        services.Configure<RiskOptions>(configuration.GetSection(RiskOptions.SectionName));
         services.TryAddSingleton<PaperTradingSession>();
         services.Configure<MarketFeedOptions>(configuration.GetSection(MarketFeedOptions.SectionName));
         services.AddHostedService<SimulatedMarketFeed>();
+        services.AddHostedService<ChartClosePoller>();
 
         return services;
     }
