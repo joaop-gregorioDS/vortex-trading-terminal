@@ -202,14 +202,14 @@ export function ProTradingChart() {
             borderColor: "#1e293b",
             timeVisible: true,
             secondsVisible: false,
-            tickMarkFormatter: (time, tickMarkType) =>
+            tickMarkFormatter: (time: any, tickMarkType: any) =>
               typeof time === "number" ? formatChartTick(time, tickMarkType) : null,
           },
           localization: {
             locale: "pt-BR",
             dateFormat: "dd/MM/yyyy",
             priceFormatter: (price: number) => formatChartPrice(price, precision),
-            timeFormatter: (time) => (typeof time === "number" ? formatChartCrosshair(time) : "—"),
+            timeFormatter: (time: any) => (typeof time === "number" ? formatChartCrosshair(time) : "—"),
           },
           crosshair: {
             mode: 1, // Magnet crosshair
@@ -1201,12 +1201,13 @@ function showSession(chart: IChartApi, barCount: number, width: number) {
 }
 
 function pulseSeries<T extends { time: UTCTimestamp }>(
-  series: { data: () => readonly { time: UTCTimestamp }[]; update: (bar: T) => void } | null,
+  series: { data: () => readonly any[]; update: (bar: any) => void } | null,
   points: readonly T[],
 ) {
   if (!series || points.length === 0) return;
   const existing = series.data();
-  const lastTime = existing.length > 0 ? Number(existing[existing.length - 1].time) : Number.NEGATIVE_INFINITY;
+  const lastItem = existing.length > 0 ? (existing[existing.length - 1] as any) : null;
+  const lastTime = lastItem && "time" in lastItem ? Number(lastItem.time) : Number.NEGATIVE_INFINITY;
   for (const point of points) {
     if (Number(point.time) >= lastTime) series.update(point);
   }

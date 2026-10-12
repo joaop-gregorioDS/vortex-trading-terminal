@@ -197,13 +197,13 @@ function HistoryChart({ history }: { history: YahooHistoryTransport }) {
             borderColor: "#1e293b",
             timeVisible: history.interval !== "1d",
             secondsVisible: false,
-            tickMarkFormatter: (time, tickMarkType) =>
+            tickMarkFormatter: (time: any, tickMarkType: any) =>
               typeof time === "number" ? formatChartTick(time, tickMarkType) : null,
           },
           localization: {
             locale: "pt-BR",
             priceFormatter: (price: number) => formatChartPrice(price, history.decimals),
-            timeFormatter: (time) => (typeof time === "number" ? formatChartCrosshair(time) : "—"),
+            timeFormatter: (time: any) => (typeof time === "number" ? formatChartCrosshair(time) : "—"),
           },
         });
         chartRef.current = chart;
