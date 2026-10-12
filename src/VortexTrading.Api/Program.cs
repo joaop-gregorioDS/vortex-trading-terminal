@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpLogging;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 using VortexTrading.Api.Configuration;
@@ -11,6 +12,7 @@ using VortexTrading.Api.Trading;
 using VortexTrading.Application;
 using VortexTrading.Infrastructure;
 using VortexTrading.Infrastructure.MarketData.Development;
+using VortexTrading.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -63,6 +65,15 @@ builder.Services.AddHttpLogging(options =>
 });
 
 var app = builder.Build();
+
+if (args.Contains("--migrate"))
+{
+    using var scope = app.Services.CreateScope();
+    var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<VortexTradingDbContext>>();
+    await using var db = await factory.CreateDbContextAsync();
+    await db.Database.MigrateAsync();
+    return;
+}
 
 app.UseHttpLogging();
 app.UseExceptionHandler(new ExceptionHandlerOptions

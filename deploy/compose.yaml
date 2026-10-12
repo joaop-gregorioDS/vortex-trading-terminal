@@ -15,8 +15,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.api
-      target: migrations
-    image: vortex-trading-migrations:latest
+    image: vortex-trading-api:latest
+    command: ["--migrate"]
     environment:
       ConnectionStrings__PostgreSQL: "Host=postgres;Port=5432;Database=vortex_trading;Username=vortex_trading;Password=${POSTGRES_PASSWORD}"
     depends_on:
@@ -29,9 +29,6 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.api
-      # Explicit target. Without it the build takes the last stage in the file, which is the migration
-      # runner, so the API container executed the migration entrypoint and exited immediately.
-      target: runtime
     image: vortex-trading-api:latest
     environment:
       ASPNETCORE_ENVIRONMENT: Production
