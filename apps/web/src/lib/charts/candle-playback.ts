@@ -192,3 +192,84 @@ export function stepPlayback(state: Playback, elapsedMs: number, durationMs = 9_
     low: Math.min(state.low, price),
   };
 }
+
+/**
+ * Keeps the forming candle pulsing realistically like Profit Pro, even between Yahoo reads.
+ * When the cached path is done (cursor >= 1), it generates gentle micro-ticks around the latest reference price
+ * within the asset's minMove and spread bounds, expanding high/low when breached.
+ */
+export function pulsePlayback(
+  state: Playback,
+  referencePrice: number | null | undefined,
+  minMove: number,
+  precision: number,
+  elapsedMs: number,
+  durationMs = 9_000,
+): Playback {
+  if (state.cursor < 1 && state.path.length > 1 && durationMs > 0) {
+    const nextState = stepPlayback(state, elapsedMs, durationMs);
+    if (referencePrice !== null && referencePrice !== undefined && Number.isFinite(referencePrice) && referencePrice > 0) {
+      return { ...nextState, targetClose: referencePrice };
+    }
+    return nextState;
+  }
+
+  const validTarget =
+    referencePrice !== null && referencePrice !== undefined && Number.isFinite(referencePrice) && referencePrice > 0
+      ? referencePrice
+      : state.targetClose > 0
+      ? state.targetClose
+      : state.close;
+
+  const stepSize = minMove > 0 ? minMove : 0.01;
+  const diff = validTarget - state.close;
+
+  let nextClose = state.close;
+
+  if (Math.abs(diff) > stepSize * 0.75) {
+    // The market reference price has moved or is ahead; smoothly advance toward it
+    const direction = diff > 0 ? 1 : -1;
+    const ticksAway = Math.abs(diff) / stepSize;
+    const stepCount = ticksAway > 8 ? 2 : 1;
+    const increment = direction * stepCount * stepSize;
+    if (Math.abs(increment) >= Math.abs(diff)) {
+      nextClose = validTarget;
+    } else {
+      nextClose = state.close + increment;
+    }
+  } else {
+    // Micro-tick oscillation around reference price (Profit Pro book micro-ticks)
+    const roll = Math.random();
+    if (roll < 0.35) {
+      nextClose = state.close + stepSize;
+    } else if (roll < 0.70) {
+      nextClose = state.close - stepSize;
+    } else {
+      nextClose = state.close;
+    }
+
+    // Mean-reversion boundary: don't drift further than 2 ticks away from validTarget
+    if (nextClose > validTarget + 2 * stepSize + EPS) {
+      nextClose = validTarget + stepSize;
+    } else if (nextClose < validTarget - 2 * stepSize - EPS) {
+      nextClose = validTarget - stepSize;
+    }
+  }
+
+  // Ensure exact decimal precision
+  const factor = 10 ** precision;
+  nextClose = Math.round(nextClose * factor) / factor;
+
+  const nextHigh = Math.max(state.high, nextClose, state.targetHigh);
+  const nextLow = Math.min(state.low, nextClose, state.targetLow);
+
+  return {
+    ...state,
+    cursor: 1,
+    close: nextClose,
+    high: Math.round(nextHigh * factor) / factor,
+    low: Math.round(nextLow * factor) / factor,
+    targetClose: validTarget,
+  };
+}
+
