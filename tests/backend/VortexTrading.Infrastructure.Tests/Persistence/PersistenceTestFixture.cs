@@ -80,6 +80,8 @@ public sealed class PersistenceTestFixture : IAsyncLifetime
                     [TestInstrument.Value], token);
                 await context.Database.ExecuteSqlRawAsync(
                     "DELETE FROM trading.orders WHERE \"InstrumentId\" = {0}", [TestInstrument.Value], token);
+                await context.Database.ExecuteSqlRawAsync(
+                    "DELETE FROM trading.minute_bars WHERE \"InstrumentId\" = {0}", [TestInstrument.Value], token);
             }
 
             await _provider.DisposeAsync();

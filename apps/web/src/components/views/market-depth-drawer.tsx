@@ -54,7 +54,7 @@ export function MarketDepthDrawer() {
     setNotice(null);
     try {
       if (!instrumentId) {
-        setNotice("Este ativo não faz parte do pregão simulado.");
+        setNotice("Este ativo não faz parte do pregão.");
         return;
       }
       const res = await submitOrder({
@@ -77,7 +77,7 @@ export function MarketDepthDrawer() {
   return (
     <aside className="absolute inset-y-0 right-0 z-30 flex w-96 flex-col border-l border-[#ded8cb] bg-white shadow-2xl select-none">
       <div className="flex h-11 items-center justify-between border-b border-[#e5e1d7] bg-[#fbf9f5] px-4">
-        <h2 className="text-xs font-bold text-stone-900">Livro simulado · {activeTicker}</h2>
+        <h2 className="text-xs font-bold text-stone-900">Livro de papel · {activeTicker}</h2>
         <button
           type="button"
           onClick={() => setBookDrawerOpen(false)}
@@ -112,7 +112,7 @@ export function MarketDepthDrawer() {
             </span>
           </div>
           <p className="mt-2 text-[10px] leading-relaxed text-stone-500">
-            O pregão oferece um preço e uma quantidade por tick. Não há uma escada de ofertas além disso.
+            O preço vem do Yahoo enquanto o pregão está aberto. Não há escada de ofertas: um preço e uma quantidade por tick.
           </p>
         </div>
 

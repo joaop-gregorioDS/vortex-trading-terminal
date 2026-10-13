@@ -101,7 +101,7 @@ export function MarketWatchDrawer() {
 
       {/* Footer */}
       <div className="border-t border-[#e5e1d7] bg-[#f9f8f5] px-3 py-2 text-[10px] text-stone-400">
-        {marketQuotes.length} ativos do pregão simulado
+        {marketQuotes.length} ativos do pregão
       </div>
     </aside>
   );

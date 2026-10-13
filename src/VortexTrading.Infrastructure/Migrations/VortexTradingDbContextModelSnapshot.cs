@@ -107,6 +107,36 @@ namespace VortexTrading.Infrastructure.Migrations
                     b.ToTable("order_fills", "trading");
                 });
 
+            modelBuilder.Entity("VortexTrading.Infrastructure.Persistence.MinuteBarRow", b =>
+                {
+                    b.Property<Guid>("InstrumentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("OpenTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("Close")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal>("High")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal>("Low")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal>("Open")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal>("Volume")
+                        .HasColumnType("numeric");
+
+                    b.HasKey("InstrumentId", "OpenTime");
+
+                    b.HasIndex("OpenTime");
+
+                    b.ToTable("minute_bars", "trading");
+                });
+
             modelBuilder.Entity("VortexTrading.Domain.Trading.OrderFill", b =>
                 {
                     b.HasOne("VortexTrading.Domain.Trading.Order", null)

@@ -25,6 +25,7 @@ public static class TerminalEndpoints
             var time = session.CurrentTime;
             var snapshot = new TerminalSnapshotResponse(
                 time is null ? null : TradingMapping.Instant(time),
+                session.MarketOpen,
                 MarketQuotesEndpoints.BuildQuotes(session),
                 TradingEndpoints.BuildPortfolio(session),
                 session.Orders.Select(order => TradingMapping.ToResponse(order, session.ProtectionRole(order.Id))).ToArray(),

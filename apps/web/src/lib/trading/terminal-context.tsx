@@ -53,6 +53,7 @@ type TerminalContextType = {
   bookDrawerOpen: boolean;
   setBookDrawerOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
   simulatedTime: string | null;
+  sessionOpen: boolean | null;
   currentTimeStr: string;
   currentDateStr: string;
   connectionError: string | null;
@@ -98,6 +99,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   });
 
   const [simulatedTime, setSimulatedTime] = useState<string | null>(null);
+  const [sessionOpen, setSessionOpen] = useState<boolean | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [marketQuotes, setMarketQuotes] = useState<MarketQuoteTransport[]>([]);
   const [orders, setOrders] = useState<OrderTransport[]>([]);
@@ -123,6 +125,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const clearSession = useCallback((error: string) => {
     setConnectionError(error);
     setSimulatedTime(null);
+    setSessionOpen(null);
     setMarketQuotes([]);
     setOrders([]);
     setPortfolio(null);
@@ -139,6 +142,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
 
     setConnectionError(null);
     setSimulatedTime(snapshot.value.simulatedTime);
+    setSessionOpen(snapshot.value.sessionOpen ?? null);
     setMarketQuotes(snapshot.value.quotes);
     setOrders(snapshot.value.orders);
     setPortfolio(snapshot.value.portfolio);
@@ -265,6 +269,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
         bookDrawerOpen,
         setBookDrawerOpen,
         simulatedTime,
+        sessionOpen,
         currentTimeStr: brasilia.time,
         currentDateStr: brasilia.date,
         connectionError,

@@ -10,8 +10,11 @@ namespace VortexTrading.Api.Charts;
 /// <summary>Builds a chart from the prints the session published for one instrument.</summary>
 public static class LiveChartSnapshot
 {
-    /// <summary>Identifies the source so a client can tell this chart from the development fixture.</summary>
+    /// <summary>Identifies a chart built from session prints rather than Yahoo bars.</summary>
     public const string SourceId = "paper-session-v1";
+
+    /// <summary>Identifies a chart built from the Yahoo minute bars of the open pregão.</summary>
+    public const string YahooSourceId = "yahoo-session-v1";
 
     private static readonly IndicatorSpecification[] Specifications =
     [
@@ -57,10 +60,16 @@ public static class LiveChartSnapshot
         ArgumentNullException.ThrowIfNull(interval);
 
         var bars = Math.Clamp(maxBars, 1, 500);
-        var prints = session.ObservationsFor(profile.InstrumentId)
-            .Select(observation => new MarketPrint(observation.EventTime, observation.ReferencePrice, observation.Volume))
-            .ToArray();
-        var batch = PrintSeries.Aggregate(profile.InstrumentId, interval, prints, bars);
+        var sessionBars = session.BarsFor(profile.InstrumentId);
+        var batch = sessionBars.Count > 0
+            ? SessionBarSeries.Aggregate(profile.InstrumentId, interval, sessionBars, bars)
+            : PrintSeries.Aggregate(
+                profile.InstrumentId,
+                interval,
+                session.ObservationsFor(profile.InstrumentId)
+                    .Select(observation => new MarketPrint(observation.EventTime, observation.ReferencePrice, observation.Volume))
+                    .ToArray(),
+                bars);
         if (batch.Count == 0)
         {
             return null;
@@ -80,7 +89,11 @@ public static class LiveChartSnapshot
             }
         }
 
-        var context = new HistoricalChartSourceContext(profile.InstrumentId, interval, SourceId, IsDemo: true);
+        var context = new HistoricalChartSourceContext(
+            profile.InstrumentId,
+            interval,
+            sessionBars.Count > 0 ? YahooSourceId : SourceId,
+            IsDemo: true);
         return new HistoricalChartSnapshot(context, batch, results.AsReadOnly());
     }
 }

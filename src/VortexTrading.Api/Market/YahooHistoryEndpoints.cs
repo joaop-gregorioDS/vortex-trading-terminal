@@ -1,7 +1,10 @@
 using System.Globalization;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using VortexTrading.Application.MarketData;
+using VortexTrading.Domain.Markets;
 using VortexTrading.Infrastructure.MarketData.Yahoo;
+using VortexTrading.Infrastructure.Trading.Session;
 
 namespace VortexTrading.Api.Market;
 
@@ -24,23 +27,24 @@ public sealed record YahooHistoryResponse(
     string TickSize,
     string SeriesName,
     string Note,
-    YahooCandleResponse[] Candles);
+    YahooCandleResponse[] Candles,
+    YahooCandleResponse[] FormingMinutes);
 
 /// <summary>
-/// Delayed Yahoo history for the selected catalog asset. Mini contracts are not listed, so the
+/// Yahoo history for the selected catalog asset. Mini contracts are not listed, so the
 /// index chart uses the Ibovespa and the dollar chart uses the commercial rate in mini points.
-/// Nothing here is published into the paper session.
+/// The same series feeds the paper session while the B3 cash session is open.
 /// </summary>
 public static class YahooHistoryEndpoints
 {
     private const string EquityNote =
-        "Série atrasada do Yahoo Finance. Estes preços não entram no pregão simulado nem no livro. Uma ordem do gráfico espera um fechamento posterior desta série.";
+        "Série gratuita do Yahoo Finance. Ela alimenta o pregão enquanto a sessão regular da B3 está aberta e para quando o pregão encerra. Uma ordem do gráfico espera um fechamento posterior desta série.";
 
     private const string IndexNote =
-        "Ibovespa (^BVSP), atrasado. O Yahoo não lista o índice futuro. O livro continua no pregão simulado. Uma ordem do gráfico espera um fechamento posterior desta série.";
+        "Ibovespa (^BVSP). O Yahoo não lista o índice futuro. Entra no pregão como proxy e para junto com a sessão regular da B3. Uma ordem do gráfico espera um fechamento posterior desta série.";
 
     private const string DollarNote =
-        "Dólar comercial em pontos do mini (BRL=X × 1.000), atrasado. O Yahoo não lista o dólar futuro. O livro continua no pregão simulado. Uma ordem do gráfico espera um fechamento posterior desta série.";
+        "Dólar comercial em pontos do mini (BRL=X × 1.000). O Yahoo não lista o dólar futuro. Entra no pregão como proxy e para junto com a sessão regular da B3. Uma ordem do gráfico espera um fechamento posterior desta série.";
 
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
 
@@ -49,6 +53,7 @@ public static class YahooHistoryEndpoints
         ArgumentNullException.ThrowIfNull(app);
 
         app.MapGet("/api/market/history", async (
+            HttpContext http,
             YahooFinanceChartClient yahoo,
             string? ticker,
             string? interval,
@@ -65,7 +70,7 @@ public static class YahooHistoryEndpoints
             if (!YahooSeriesCatalog.TryForProfile(profile, out var spec))
             {
                 return Problem(StatusCodes.Status422UnprocessableEntity, "yahoo_symbol_unavailable",
-                    "O Yahoo Finance não lista este contrato. O pregão simulado continua sendo a fonte dele.");
+                    "O Yahoo Finance não lista este contrato.");
             }
 
             var map = new YahooSeries(spec.Symbol, spec.TickSize, spec.Decimals, spec.Scale,
@@ -78,6 +83,43 @@ public static class YahooHistoryEndpoints
             }
 
             var bars = maxBars is null or < 1 ? 180 : Math.Min(maxBars.Value, YahooFinanceChartClient.MaximumBars);
+            var session = http.RequestServices.GetService<PaperTradingSession>();
+            if (session is not null)
+            {
+                var minutes = session.BarsFor(profile.InstrumentId);
+                if (minutes.Count > 0)
+                {
+                    var aggregated = SessionBarSeries.Aggregate(
+                        profile.InstrumentId, window.CandleInterval, minutes, bars);
+                    if (aggregated.Count > 0)
+                    {
+                        var candles = aggregated.Select(candle => ToCandle(candle.OpenTime.Value, candle.CloseTime.Value,
+                            candle.Open.Value, candle.High.Value, candle.Low.Value, candle.Close.Value,
+                            candle.Volume.Value, map.Decimals)).ToArray();
+                        var lastOpen = aggregated[^1].OpenTime.Value;
+                        var forming = minutes
+                            .Where(bar => SessionBarSeries.FormationOpen(bar.OpenTime.Value, window.CandleInterval) == lastOpen)
+                            .Select(bar => ToCandle(
+                                bar.OpenTime.Value,
+                                bar.OpenTime.Value.AddMinutes(1),
+                                bar.Open, bar.High, bar.Low, bar.Close, bar.Volume, map.Decimals))
+                            .ToArray();
+                        return Results.Json(new YahooHistoryResponse(
+                            profile.Ticker,
+                            map.Symbol,
+                            window.Token,
+                            "BRL",
+                            Delayed: true,
+                            map.Decimals,
+                            map.TickSize.ToString(CultureInfo.InvariantCulture),
+                            map.SeriesName,
+                            map.Note,
+                            candles,
+                            forming), Options);
+                    }
+                }
+            }
+
             try
             {
                 var series = await yahoo.LoadAsync(
@@ -105,7 +147,8 @@ public static class YahooHistoryEndpoints
                     map.TickSize.ToString(CultureInfo.InvariantCulture),
                     map.SeriesName,
                     map.Note,
-                    candles), Options);
+                    candles,
+                    []), Options);
             }
             catch (YahooChartException)
             {
@@ -147,6 +190,24 @@ public static class YahooHistoryEndpoints
         decimal Scale,
         string SeriesName,
         string Note);
+
+    private static YahooCandleResponse ToCandle(
+        DateTimeOffset open,
+        DateTimeOffset close,
+        decimal openPrice,
+        decimal high,
+        decimal low,
+        decimal closePrice,
+        decimal volume,
+        int decimals) =>
+        new(
+            YahooChartParser.FormatInstant(open),
+            YahooChartParser.FormatInstant(close),
+            Money(openPrice, decimals),
+            Money(high, decimals),
+            Money(low, decimals),
+            Money(closePrice, decimals),
+            volume.ToString(CultureInfo.InvariantCulture));
 
     private static string Money(decimal value, int decimals) =>
         value.ToString("F" + decimals, CultureInfo.InvariantCulture);

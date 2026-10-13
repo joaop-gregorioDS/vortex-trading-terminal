@@ -41,7 +41,7 @@ export function OperarView() {
   const changePoints = activeQuote?.changePoints ? groupDecimal(activeQuote.changePoints) : "—";
   const min24 = activeQuote?.min ? groupDecimal(activeQuote.min) : "—";
   const max24 = activeQuote?.max ? groupDecimal(activeQuote.max) : "—";
-  const assetName = activeQuote?.name ?? "Fora do pregão simulado";
+  const assetName = activeQuote?.name ?? "Fora do pregão";
   const changeSign = signOf(activeQuote?.changePoints);
 
   const handleTickerSubmit = (e: React.FormEvent) => {

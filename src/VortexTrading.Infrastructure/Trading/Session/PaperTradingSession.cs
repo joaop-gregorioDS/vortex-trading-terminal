@@ -17,11 +17,12 @@ namespace VortexTrading.Infrastructure.Trading.Session;
 
 /// <summary>Owns the single paper trading session used by the application.</summary>
 /// <remarks>
-/// One session, one simulated clock and one lock. Each catalog instrument has its own paper provider
-/// and its own execution coordinator, so a print for PETR4 cannot fill an order for VALE3.
+/// One session, one clock and one lock. Each catalog instrument has its own paper provider and its
+/// own execution coordinator, so a print for PETR4 cannot fill an order for VALE3.
 /// <para>
-/// Time is the simulated instant, not the machine clock. An order can only fill on an observation
-/// that is strictly later than its submission.
+/// Time is the quote time published by the feed, not the machine clock. An order can only fill on an
+/// observation that is strictly later than its submission. The Yahoo feed moves that clock only while
+/// the B3 cash session is open.
 /// </para>
 /// </remarks>
 public sealed class PaperTradingSession : IDisposable
@@ -35,6 +36,9 @@ public sealed class PaperTradingSession : IDisposable
     /// </summary>
     public const int MaximumObservations = 24 * 60 * 60 / 15;
 
+    /// <summary>Minute bars kept per instrument: twelve cash sessions of seven hours.</summary>
+    public const int MaximumMinuteBars = 12 * 7 * 60;
+
     private readonly SimulationClock _clock;
     private readonly IOrderStore? _store;
     private readonly ILogger<PaperTradingSession>? _logger;
@@ -45,9 +49,12 @@ public sealed class PaperTradingSession : IDisposable
     private readonly object _gate = new();
     private readonly Lazy<int> _restoredOrders;
     private readonly UtcInstant _marketOpen = new(new DateTimeOffset(2026, 10, 1, 10, 0, 0, TimeSpan.Zero));
+    private readonly Dictionary<InstrumentId, UtcInstant> _matchedThrough = new();
     private long _feedIndex;
     private UtcInstant _nextPrint;
     private bool _feedRestart;
+    private bool? _sessionOpen;
+    private bool _tapeFrozen;
 
     public PaperTradingSession(IOrderStore? store = null, ILogger<PaperTradingSession>? logger = null,
         ILogger<ExecutionCoordinator>? coordinatorLogger = null, IRiskEvaluator? riskEvaluator = null)
@@ -85,8 +92,20 @@ public sealed class PaperTradingSession : IDisposable
     /// <summary>Execution scope of the primary instrument. Other instruments have their own scopes.</summary>
     public ExecutionCoordinator Coordinator { get; }
 
-    /// <summary>Current simulated instant, or null before the feed produced anything.</summary>
+    /// <summary>Quote time of the latest adopted print, or null before the feed produced anything.</summary>
     public UtcInstant? CurrentTime => _clock.Current;
+
+    /// <summary>True while the B3 cash session is open. Null until the first Yahoo round.</summary>
+    public bool? MarketOpen
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _sessionOpen;
+            }
+        }
+    }
 
     /// <summary>Instant to stamp new intents with. Does not consult the machine clock.</summary>
     public UtcInstant Now() => _clock.Now();
@@ -184,6 +203,104 @@ public sealed class PaperTradingSession : IDisposable
             _feedIndex = 0;
             _nextPrint = _marketOpen;
             _clock.Restart(_marketOpen);
+            _sessionOpen = null;
+            _tapeFrozen = false;
+            _matchedThrough.Clear();
+            foreach (var scope in _scopes.Values)
+            {
+                scope.Bars.Clear();
+                scope.QuoteTime = null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Adopts one synchronized Yahoo round. While the session is closed the first round is stored and
+    /// every later round is ignored, so the tape stops with the pregão.
+    /// </summary>
+    public void ApplyMarketRound(MarketRound round)
+    {
+        ArgumentNullException.ThrowIfNull(round);
+
+        lock (_gate)
+        {
+            var wasOpen = _sessionOpen == true;
+            if (!round.SessionOpen)
+            {
+                if (!_tapeFrozen)
+                {
+                    AdoptRound(round, match: wasOpen);
+                    _tapeFrozen = true;
+                }
+
+                _sessionOpen = false;
+                return;
+            }
+
+            _sessionOpen = true;
+            if (_tapeFrozen)
+            {
+                _matchedThrough.Clear();
+                _tapeFrozen = false;
+                AdoptRound(round, match: false);
+                return;
+            }
+
+            AdoptRound(round, match: true);
+        }
+    }
+
+    /// <summary>Minute bars adopted for one instrument, oldest first.</summary>
+    public IReadOnlyList<SessionBar> BarsFor(InstrumentId instrumentId)
+    {
+        ArgumentNullException.ThrowIfNull(instrumentId);
+
+        lock (_gate)
+        {
+            return _scopes.TryGetValue(instrumentId, out var scope)
+                ? scope.Bars.ToArray()
+                : [];
+        }
+    }
+
+    /// <summary>Bars at or after <paramref name="inclusive"/>, or the whole tape when the cursor is absent.</summary>
+    public IReadOnlyList<SessionBar> BarsSince(InstrumentId instrumentId, DateTimeOffset? inclusive)
+    {
+        var bars = BarsFor(instrumentId);
+        if (inclusive is not { } from)
+        {
+            return bars;
+        }
+
+        return bars.Where(bar => bar.OpenTime.Value >= from).ToArray();
+    }
+
+    /// <summary>
+    /// Merges minutes restored from the database. Does not match orders. The quote clock moves to the
+    /// newest bar so the chart is already on the last pregão before Yahoo answers.
+    /// </summary>
+    public void RestoreMinuteBars(IReadOnlyDictionary<InstrumentId, IReadOnlyList<SessionBar>> barsByInstrument)
+    {
+        ArgumentNullException.ThrowIfNull(barsByInstrument);
+
+        lock (_gate)
+        {
+            foreach (var (instrumentId, bars) in barsByInstrument)
+            {
+                if (bars.Count == 0 || !_scopes.TryGetValue(instrumentId, out var scope))
+                {
+                    continue;
+                }
+
+                MergeBars(scope.Bars, bars);
+                var last = scope.Bars[^1];
+                if (scope.QuoteTime is null || last.OpenTime.CompareTo(scope.QuoteTime) >= 0)
+                {
+                    scope.LastPrice = new Price(last.Close);
+                    scope.QuoteTime = last.OpenTime;
+                    _clock.AdvanceTo(last.OpenTime);
+                }
+            }
         }
     }
 
@@ -736,7 +853,127 @@ public sealed class PaperTradingSession : IDisposable
 
         public List<PriceObservation> Observations { get; } = [];
 
+        public List<SessionBar> Bars { get; } = [];
+
+        public UtcInstant? QuoteTime { get; set; }
+
         public Price? LastPrice { get; set; }
+    }
+
+    /// <summary>Stores the round and, when asked, matches only a quote the book has not seen yet.</summary>
+    private void AdoptRound(MarketRound round, bool match)
+    {
+        foreach (var update in round.Instruments)
+        {
+            if (update.Price <= 0m
+                || !CandleAggregator.TryGetProfile(update.Ticker, out var profile)
+                || profile is null
+                || !_scopes.TryGetValue(profile.InstrumentId, out var scope))
+            {
+                continue;
+            }
+
+            var bars = round.SessionOpen
+                ? WithLivePrice(update.MinuteBars, update.Price, update.MarketTime)
+                : update.MinuteBars.OrderBy(bar => bar.OpenTime).ToArray();
+            if (bars.Count > 0)
+            {
+                MergeBars(scope.Bars, bars);
+            }
+
+            var instant = new UtcInstant(update.MarketTime);
+            if (scope.QuoteTime is not null && instant.CompareTo(scope.QuoteTime) < 0)
+            {
+                continue;
+            }
+
+            var priceChanged = scope.LastPrice is null || scope.LastPrice.Value != update.Price;
+            var seen = _matchedThrough.TryGetValue(profile.InstrumentId, out var cursor);
+            if (seen && instant.CompareTo(cursor) < 0)
+            {
+                continue;
+            }
+
+            scope.LastPrice = new Price(update.Price);
+            scope.QuoteTime = instant;
+            _clock.AdvanceTo(instant);
+
+            var timeAdvanced = !seen || instant.CompareTo(cursor) > 0;
+            if (match && seen && (timeAdvanced || priceChanged))
+            {
+                try
+                {
+                    Publish(profile.InstrumentId, instant, update.Price, profile.PrintQuantity);
+                }
+                catch (ArgumentException error)
+                {
+                    _logger?.LogWarning(error, "Yahoo print for {Ticker} was not applied.", profile.Ticker);
+                    continue;
+                }
+            }
+
+            _matchedThrough[profile.InstrumentId] = instant;
+        }
+    }
+
+    /// <summary>Upserts minutes by their open time and drops the oldest once the cap is reached.</summary>
+    private static void MergeBars(List<SessionBar> stored, IReadOnlyList<SessionBar> incoming)
+    {
+        var byOpen = new Dictionary<DateTimeOffset, SessionBar>(stored.Count + incoming.Count);
+        foreach (var bar in stored)
+        {
+            byOpen[bar.OpenTime.Value] = bar;
+        }
+
+        foreach (var bar in incoming)
+        {
+            byOpen[bar.OpenTime.Value] = bar;
+        }
+
+        var merged = byOpen.Values.OrderBy(bar => bar.OpenTime).ToList();
+        if (merged.Count > MaximumMinuteBars)
+        {
+            merged.RemoveRange(0, merged.Count - MaximumMinuteBars);
+        }
+
+        stored.Clear();
+        stored.AddRange(merged);
+    }
+
+    /// <summary>Patches the forming minute so the chart close matches the quote from the same round.</summary>
+    private static IReadOnlyList<SessionBar> WithLivePrice(
+        IReadOnlyList<SessionBar> bars, decimal price, DateTimeOffset marketTime)
+    {
+        var ordered = bars.OrderBy(bar => bar.OpenTime).ToList();
+        if (price <= 0m)
+        {
+            return ordered;
+        }
+
+        var utc = marketTime.ToUniversalTime();
+        var minuteTicks = utc.Ticks / TimeSpan.TicksPerMinute * TimeSpan.TicksPerMinute;
+        var minute = new UtcInstant(new DateTimeOffset(minuteTicks, TimeSpan.Zero));
+        if (ordered.Count == 0)
+        {
+            ordered.Add(new SessionBar(minute, price, price, price, price, 0m));
+            return ordered;
+        }
+
+        var last = ordered[^1];
+        if (last.OpenTime.CompareTo(minute) == 0)
+        {
+            var high = last.High > price ? last.High : price;
+            var low = last.Low > 0m && last.Low < price ? last.Low : price;
+            ordered[^1] = last with { Close = price, High = high, Low = low };
+            return ordered;
+        }
+
+        if (minute.CompareTo(last.OpenTime) > 0)
+        {
+            ordered.Add(new SessionBar(minute, price, price, price, price, 0m));
+        }
+
+        return ordered;
     }
 
     /// <summary>Clock driven by the feed. It never reads the machine clock.</summary>

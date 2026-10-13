@@ -172,6 +172,8 @@ export type YahooHistoryTransport = {
   seriesName: string;
   note: string;
   candles: YahooCandleTransport[];
+  /** One-minute bars inside the forming candle. The chart replays them during the delay. */
+  formingMinutes?: YahooCandleTransport[];
 };
 
 export const fetchYahooHistory = (ticker: string, interval: string) =>
@@ -304,6 +306,8 @@ export type ClosedTradeTransport = {
 
 export type TerminalSnapshotTransport = {
   simulatedTime: string | null;
+  /** True while the B3 cash session is open. Null until the first Yahoo read. */
+  sessionOpen: boolean | null;
   quotes: MarketQuoteTransport[];
   portfolio: PortfolioTransport;
   orders: OrderTransport[];

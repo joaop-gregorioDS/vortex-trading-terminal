@@ -8,10 +8,10 @@ Projeto de terminal financeiro web original para estudar engenharia de software,
 
 ## Estágio atual
 
-<!-- ESTAGIO-ATUAL: TASK 11.0 -->
-**TASK 11.0** — Pregão simulado de ponta a ponta: uma sessão multiativo alimenta cotações, gráfico, livro, boleta, posições, zeragem e relatórios; o valor do ponto dos minicontratos entra na leitura; a demonstração reinicia por `POST /api/session/reset` (ADR-045). Anteriormente: estação de negociação (ADR-044).
+<!-- ESTAGIO-ATUAL: ADR-046 -->
+**ADR-046** — O pregão segue a série gratuita do Yahoo Finance. Um round sincronizado alimenta cotações, gráfico, livro, boleta, posições, zeragem e relatórios. A movimentação para quando o pregão regular da B3 encerra. A execução continua em paper e a demonstração reinicia por `POST /api/session/reset` (ADR-045).
 
-A visão de produto é um **app web** de paper trading: um pregão simulado, coordenado com a API, hospedado futuramente na VPS da Vortex Software. O frontend mostra a mesma sessão em todas as telas — cotações, gráfico, livro, boleta, posições e relatórios derivados dos prints e dos fills.
+A visão de produto é um **app web** de paper trading sobre o pregão real: a API lê o Yahoo e o frontend mostra a mesma sessão em todas as telas. Fora do pregão o tape fica no último negócio.
 
 ## O que já existe
 
@@ -25,11 +25,11 @@ A visão de produto é um **app web** de paper trading: um pregão simulado, coo
 | Coordenação | `ExecutionCoordinator`: dono do escopo, consumidor único dos relatórios, roteamento por `OrderId` e tempo explícito em cada operação |
 | Portfólio | `ExactDecimal`, `Position` e `Portfolio`: custo médio, P&L realizado e não realizado exatos, sem escala universal |
 | API de trading | `GET /api/terminal`, `GET /api/trading/market`, `POST/GET /api/orders`, `POST /api/orders/{id}/cancel`, `POST /api/orders/emergency-flat`, `GET /api/market/quotes`, `GET /api/market/depth`, `GET /api/market/history`, `GET /api/chart`, `GET /api/reports/performance`, `GET /api/reports/trades`, `GET /api/portfolio` e `POST /api/session/reset` |
-| Sessão simulada | `PaperTradingSession` (singleton): um relógio e um livro por ativo do catálogo. O feed publica um round determinístico; o reset reabre o pregão no instante inicial. Valores exatos trafegam como string decimal |
+| Pregão Yahoo | `PaperTradingSession` (singleton): um relógio e um livro por ativo. `YahooMarketFeed` publica um round do Yahoo; o tape congela quando a sessão regular da B3 fecha. Valores exatos trafegam como string decimal |
 | Estação (Frontend) | AppShell com relógio de Brasília, saldo e patrimônio lidos do snapshot; Visão Geral; Mesa com gráfico, mercado, livro e boleta; Relatórios com 10 KPIs, curva de equity e CSV. Sem robô |
-| Market Data & Quotes | Catálogo de 15 ativos da B3 (PETR4, VALE3, ITUB4, WING26, WDOU26...) com cotações, variações e extremos do dia. `GET /api/market/history` lê candles atrasados do Yahoo Finance: ações com sufixo `.SA`, o mini-índice no Ibovespa (`^BVSP`) e o mini-dólar no dólar comercial (`BRL=X`) em pontos. Essa série não entra no pregão simulado |
+| Market Data & Quotes | Catálogo de 15 ativos da B3 (PETR4, VALE3, ITUB4, WING26, WDOU26...). Ações usam o sufixo `.SA`, o mini-índice o Ibovespa (`^BVSP`) e o mini-dólar o dólar comercial (`BRL=X`) em pontos. Essa série gratuita é o pregão e para no encerramento da B3 |
 | Relatórios & Métricas | Apurador de desempenho de Day Trade com Win Rate, Profit Factor, Payoff, Max Drawdown, Curva de Equity e download de CSV |
-| Operação | Eventos de negócio estruturados por fato aplicado e `GET /api/status` com tempo simulado, preço, ordens por situação, fills e quantidade negociada |
+| Operação | Eventos de negócio estruturados por fato aplicado e `GET /api/status` com o horário do último negócio, preço, ordens por situação, fills e quantidade negociada |
 | Market Data | Porta de provider, orquestrador, provider de simulação determinístico e provider histórico de replay |
 | Replay | `ReplaySession`, `ReplayTimeline`, `CausalReplaySession` com semântica de disponibilidade temporal, sem uso de dados futuros |
 | Indicadores | SMA, EMA, MACD, RSI, ATR, Stochastic, Bollinger Bands, VWAP, ADX e OBV com consumo em lote e runtime causal em replay |
@@ -58,7 +58,7 @@ Infrastructure → Application + Domain
 Api            → Application + Infrastructure
 ```
 
-Consulte a [visão arquitetural](docs/architecture/overview.md) e os [ADRs](docs/adr/), atualmente 44 decisões aceitas.
+Consulte a [visão arquitetural](docs/architecture/overview.md) e os [ADRs](docs/adr/), atualmente 46 decisões aceitas.
 
 ## Validação
 
@@ -111,7 +111,7 @@ A connection string local fica em User Secrets (`ConnectionStrings:PostgreSQL`);
 
 ## Escopo e referências
 
-O projeto não é um produto de corretagem e não oferece recomendação de investimento. A execução é exclusivamente Paper Trading, em ambiente simulado. Os dados são simulados ou devidamente autorizados; dados reais dependerão de permissões e condições do fornecedor.
+O projeto não é um produto de corretagem e não oferece recomendação de investimento. A execução é exclusivamente Paper Trading. As cotações vêm da série gratuita do Yahoo Finance e acompanham o horário que o Yahoo informa. Não são um feed direto da B3.
 
 Não há afiliação com Nelogica, Profit ou outras plataformas usadas como referências conceituais. Código, marca, textos, identidade visual, layouts proprietários e ativos de terceiros não são copiados.
 

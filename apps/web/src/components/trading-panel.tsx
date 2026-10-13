@@ -297,7 +297,7 @@ function MarketCard({ market, connected }: { market: MarketTransport | null; con
         {market?.lastPrice ? formatMoney(market.lastPrice) : "—"}
       </p>
       <dl className="mt-4 space-y-1 text-xs text-slate-500">
-        <Row label="Tempo simulado" value={formatInstant(market?.simulatedTime ?? null)} />
+        <Row label="Tempo do pregão" value={formatInstant(market?.simulatedTime ?? null)} />
         <Row label="Ordens em repouso" value={String(market?.restingOrderCount ?? 0)} />
         <Row label="Instrumento" value={(market?.instrumentId ?? "—").slice(0, 8)} />
       </dl>
@@ -412,7 +412,7 @@ function OrdersTable({
 
       {newestFirst.length === 0 ? (
         <p className="px-5 py-8 text-sm text-slate-500">
-          Nenhuma ordem ainda. Envie uma ordem para começar a operar a sessão simulada.
+          Nenhuma ordem ainda. Envie uma ordem para operar esta conta de demonstração.
         </p>
       ) : (
         <div className="overflow-x-auto">

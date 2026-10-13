@@ -26,6 +26,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     connectionError,
     currentTimeStr,
     currentDateStr,
+    sessionOpen,
     resetDemonstration,
   } = useTerminal();
 
@@ -89,7 +90,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="flex items-center gap-5">
           <div className="flex flex-col text-right leading-tight">
             <span className="text-[9px] font-semibold tracking-wider text-stone-500">
-              PREGÃO SIMULADO
+              {sessionOpen === false ? "PREGÃO ENCERRADO" : sessionOpen === true ? "PREGÃO ABERTO" : "PREGÃO"}
             </span>
             <span className="text-xs font-bold text-stone-900">
               {currentTimeStr} <span className="font-normal text-stone-500">{currentDateStr}</span>
@@ -220,8 +221,16 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         {/* Content View */}
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#f8f6f0]">
-          <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-[11px] font-medium text-amber-950">
-            Conta compartilhada de demonstração. O pregão é simulado e as ordens são as mesmas para todos os visitantes.
+          <div
+            className={`shrink-0 border-b px-4 py-1.5 text-[11px] font-medium ${
+              sessionOpen === false
+                ? "border-stone-300 bg-stone-100 text-stone-700"
+                : "border-amber-200 bg-amber-50 text-amber-950"
+            }`}
+          >
+            {sessionOpen === false
+              ? "Pregão encerrado. As cotações param no último negócio do Yahoo Finance e voltam a andar na próxima sessão da B3. A conta de demonstração continua compartilhada."
+              : "Cotações do Yahoo Finance, lidas juntas no horário que o Yahoo informa. O preço anda enquanto o pregão da B3 está aberto e para quando ele encerra. As ordens são da conta de demonstração compartilhada."}
           </div>
           {connectionError && (
             <div className="shrink-0 border-b border-rose-200 bg-rose-50 px-4 py-2 text-xs font-medium text-rose-800">

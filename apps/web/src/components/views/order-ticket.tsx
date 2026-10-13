@@ -32,7 +32,7 @@ export function OrderTicket() {
     setNotice(null);
     try {
       if (!activeQuote?.instrumentId) {
-        setNotice({ tone: "error", text: "Este ativo não faz parte do pregão simulado." });
+        setNotice({ tone: "error", text: "Este ativo não faz parte do pregão." });
         return;
       }
       if (orderType === "limit" && limitPrice.trim().length === 0) {
@@ -85,7 +85,7 @@ export function OrderTicket() {
     setNotice(null);
     try {
       if (!activeQuote?.instrumentId) {
-        setNotice({ tone: "error", text: "Este ativo não faz parte do pregão simulado." });
+        setNotice({ tone: "error", text: "Este ativo não faz parte do pregão." });
         return;
       }
       const result = action === "flatten"
@@ -125,7 +125,7 @@ export function OrderTicket() {
 
         <div className="rounded-md border border-[#e5e1d7] bg-[#f9f8f5] p-2 text-[11px] leading-tight">
           <div className="font-semibold text-stone-800">Conta demo compartilhada</div>
-          <div className="text-stone-500">Um pregão simulado. A ordem usa só este ativo.</div>
+          <div className="text-stone-500">Preço do Yahoo neste ativo. A ordem de papel não sai da conta de demonstração.</div>
         </div>
 
         <div className="grid grid-cols-2 gap-1 rounded-md bg-[#f6f3eb] p-1 text-[11px] font-semibold">

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTerminal } from "@/lib/trading/terminal-context";
 import { adaptSnapshot, decimalForDrawing } from "@/lib/charts/adapter";
+import { absorb, seedPlayback, stepPlayback, type PlayBar, type Playback } from "@/lib/charts/candle-playback";
 import type { ChartSnapshot } from "@/lib/charts/transport";
 import { formatChartCrosshair, formatChartPrice, formatChartTick, brasiliaFromUnix, groupDecimal } from "@/lib/trading/format";
 import {
@@ -56,6 +57,7 @@ export function ProTradingChart() {
   const bollingerLowerRef = useRef<ISeriesApi<"Line"> | null>(null);
   const vwapSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const seriesDecimalsRef = useRef(2);
+  const playbackRef = useRef<Playback | null>(null);
   const priceLinesRef = useRef<IPriceLine[]>([]);
   const linesByIdRef = useRef<Map<string, IPriceLine>>(new Map());
   const lastPointerOrder = useRef(0);
@@ -105,8 +107,10 @@ export function ProTradingChart() {
       try {
         let session: ReturnType<typeof adaptSnapshot> | null = null;
         let candles: CandlestickData<UTCTimestamp>[] = [];
+        let formingMinutes: PlayBar[] = [];
         let precision = assetConfig.precision;
         let minMove = assetConfig.minMove;
+        playbackRef.current = null;
 
         if (delayedYahoo) {
           const history = await fetchYahooHistory(activeTicker, timeframe);
@@ -125,6 +129,7 @@ export function ProTradingChart() {
           precision = history.value.decimals;
           minMove = Number(history.value.tickSize);
           candles = yahooCandles(history.value);
+          formingMinutes = playMinutes(history.value);
           setSeriesNote(history.value.note);
           setLatestRsi(null);
         } else {
@@ -248,6 +253,9 @@ export function ProTradingChart() {
 
         candleSeriesRef.current = candleSeries;
         candleSeries.setData(candles);
+        if (candles.length > 0) {
+          playbackRef.current = seedPlayback(toPlay(candles[candles.length - 1]), formingMinutes);
+        }
 
         // Session indicators stay on the simulated tape. The Yahoo series is candles only.
         if (data && indicatorSettings.sma && data.sma.length > 0) {
@@ -383,7 +391,7 @@ export function ProTradingChart() {
     delayedYahoo,
   ]);
 
-  // Session candles pulse every 2.5s. The delayed Yahoo series refreshes every 20s.
+  // The forming candle tracks the quote. A full read picks up minutes the feed has stored.
   useEffect(() => {
     let active = true;
 
@@ -392,11 +400,13 @@ export function ProTradingChart() {
 
       try {
         let incoming: CandlestickData<UTCTimestamp>[] = [];
+        let formingMinutes: PlayBar[] = [];
         let session: ReturnType<typeof adaptSnapshot> | null = null;
         if (delayedYahoo) {
           const history = await fetchYahooHistory(activeTicker, timeframe);
           if (!history.ok || history.value.candles.length === 0) return;
           incoming = yahooCandles(history.value);
+          formingMinutes = playMinutes(history.value);
         } else {
           const response = await fetch(
             `/api/chart?ticker=${encodeURIComponent(activeTicker)}&interval=${encodeURIComponent(timeframe)}&maxBars=200`,
@@ -437,7 +447,16 @@ export function ProTradingChart() {
           return;
         }
 
-        pulseSeries(candleSeriesRef.current, incoming);
+        if (delayedYahoo) {
+          const forming = incoming[incoming.length - 1];
+          const current = playbackRef.current ?? seedPlayback(toPlay(forming), formingMinutes);
+          const next = absorb(current, toPlay(forming), formingMinutes);
+          playbackRef.current = next;
+          pulseSeries(candleSeriesRef.current, incoming.slice(0, -1));
+          if (current.bucket !== next.bucket) candleSeriesRef.current.update(drawn(next));
+        } else {
+          pulseSeries(candleSeriesRef.current, incoming);
+        }
         if (data && indicatorSettings.sma) pulseSeries(smaSeriesRef.current, data.sma);
         if (data && indicatorSettings.bollinger) {
           pulseSeries(bollingerUpperRef.current, data.bollinger.upper);
@@ -446,24 +465,48 @@ export function ProTradingChart() {
         }
         if (data && indicatorSettings.vwap) pulseSeries(vwapSeriesRef.current, data.vwap);
         if (data && data.rsi.length > 0) setLatestRsi(data.rsi[data.rsi.length - 1].value);
-        const latest = incoming[incoming.length - 1];
-        setLatestStats({
-          time: Number(latest.time),
-          open: latest.open,
-          high: latest.high,
-          low: latest.low,
-          close: latest.close,
-        });
+        if (!delayedYahoo) {
+          const latest = incoming[incoming.length - 1];
+          setLatestStats({
+            time: Number(latest.time),
+            open: latest.open,
+            high: latest.high,
+            low: latest.low,
+            close: latest.close,
+          });
+        }
       } catch {
         // Silently tolerate temporary polling skips
       }
-    }, delayedYahoo ? 20000 : 2500);
+    }, delayedYahoo ? 3000 : 2500);
 
     return () => {
       active = false;
       clearInterval(intervalTimer);
     };
   }, [activeTicker, timeframe, indicatorSettings, delayedYahoo]);
+
+  // Replay the cached minute path across the Yahoo delay. The wick grows as the price
+  // reaches each extreme. The boleta keeps the official quote; this state is display only.
+  useEffect(() => {
+    if (!delayedYahoo) return;
+    const timer = setInterval(() => {
+      const state = playbackRef.current;
+      const series = candleSeriesRef.current;
+      if (!state || !series || state.cursor >= 1) return;
+      const stepped = stepPlayback(state, 200);
+      playbackRef.current = stepped;
+      series.update(drawn(stepped));
+      setLatestStats({
+        time: stepped.bucket,
+        open: stepped.open,
+        high: stepped.high,
+        low: stepped.low,
+        close: stepped.close,
+      });
+    }, 200);
+    return () => clearInterval(timer);
+  }, [delayedYahoo, activeTicker, timeframe, chartEpoch]);
 
   function priceFromCoordinate(coordinate: number): ChartPointerPrice | null {
     const series = candleSeriesRef.current;
@@ -1211,6 +1254,36 @@ function pulseSeries<T extends { time: UTCTimestamp }>(
   for (const point of points) {
     if (Number(point.time) >= lastTime) series.update(point);
   }
+}
+
+function playMinutes(history: YahooHistoryTransport): PlayBar[] {
+  return (history.formingMinutes ?? []).map((candle) => ({
+    time: Math.floor(Date.parse(candle.openTime) / 1000),
+    open: decimalForDrawing(candle.open),
+    high: decimalForDrawing(candle.high),
+    low: decimalForDrawing(candle.low),
+    close: decimalForDrawing(candle.close),
+  }));
+}
+
+function toPlay(candle: CandlestickData<UTCTimestamp>): PlayBar {
+  return {
+    time: Number(candle.time),
+    open: candle.open,
+    high: candle.high,
+    low: candle.low,
+    close: candle.close,
+  };
+}
+
+function drawn(state: Playback): CandlestickData<UTCTimestamp> {
+  return {
+    time: state.bucket as UTCTimestamp,
+    open: state.open,
+    high: state.high,
+    low: state.low,
+    close: state.close,
+  };
 }
 
 function yahooCandles(history: YahooHistoryTransport): CandlestickData<UTCTimestamp>[] {

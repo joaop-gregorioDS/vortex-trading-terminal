@@ -50,6 +50,7 @@ public static class DependencyInjection
             provider.GetRequiredService<IDbContextFactory<VortexTradingDbContext>>().CreateDbContext());
 
         services.AddSingleton<IOrderStore, PostgresOrderStore>();
+        services.AddSingleton<IMinuteBarStore, PostgresMinuteBarStore>();
         services.AddScoped<IChartCloseSource, YahooChartCloseSource>();
         services.AddHttpClient<YahooFinanceChartClient>(client =>
         {

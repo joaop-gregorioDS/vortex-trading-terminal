@@ -13,12 +13,21 @@ public sealed record YahooHistoryBar(
     decimal Close,
     decimal Volume);
 
-/// <summary>Candles read from one Yahoo chart payload. This is not the simulated session.</summary>
+/// <summary>Candles read from one Yahoo chart payload.</summary>
 public sealed record YahooHistorySeries(
     string Symbol,
     string Currency,
     string Interval,
     IReadOnlyList<YahooHistoryBar> Bars);
+
+/// <summary>Chart bars plus the session fields the pregão gate needs. Prices are already scaled.</summary>
+public sealed record YahooChartDocument(
+    YahooHistorySeries Series,
+    string? MarketState,
+    DateTimeOffset? RegularStart,
+    DateTimeOffset? RegularEnd,
+    decimal? RegularMarketPrice,
+    DateTimeOffset? RegularMarketTime);
 
 /// <summary>The public chart endpoint refused the symbol or returned a payload this adapter cannot use.</summary>
 public sealed class YahooChartException : Exception
@@ -35,6 +44,24 @@ public sealed class YahooChartException : Exception
 public static class YahooChartParser
 {
     public static YahooHistorySeries Parse(
+        string json,
+        string expectedSymbol,
+        string intervalToken,
+        decimal tickSize,
+        int decimals,
+        int maxBars,
+        decimal scale = 1m)
+    {
+        var document = ParseDocument(json, expectedSymbol, intervalToken, tickSize, decimals, maxBars, scale);
+        if (document.Series.Bars.Count == 0)
+        {
+            throw new YahooChartException("Yahoo Finance returned no candles.");
+        }
+
+        return document.Series;
+    }
+
+    public static YahooChartDocument ParseDocument(
         string json,
         string expectedSymbol,
         string intervalToken,
@@ -81,16 +108,44 @@ public static class YahooChartParser
             && currencyElement.ValueKind == JsonValueKind.String
             ? currencyElement.GetString() ?? ""
             : "";
+        var marketState = meta.TryGetProperty("marketState", out var stateElement)
+            && stateElement.ValueKind == JsonValueKind.String
+            ? stateElement.GetString()
+            : null;
+        DateTimeOffset? regularStart = null;
+        DateTimeOffset? regularEnd = null;
+        if (meta.TryGetProperty("currentTradingPeriod", out var period)
+            && period.ValueKind == JsonValueKind.Object
+            && period.TryGetProperty("regular", out var regular)
+            && regular.ValueKind == JsonValueKind.Object)
+        {
+            regularStart = ReadUnix(regular, "start");
+            regularEnd = ReadUnix(regular, "end");
+        }
+
+        decimal? regularPrice = null;
+        if (meta.TryGetProperty("regularMarketPrice", out var priceElement)
+            && TryDecimal(priceElement, out var rawPrice)
+            && rawPrice > 0m)
+        {
+            var scaled = CandleAggregator.RoundToTick(rawPrice * scale, tickSize, decimals);
+            if (scaled > 0m)
+            {
+                regularPrice = scaled;
+            }
+        }
+
+        var regularTime = ReadUnix(meta, "regularMarketTime");
 
         if (!result.TryGetProperty("timestamp", out var timestamps) || timestamps.ValueKind != JsonValueKind.Array)
         {
-            throw new YahooChartException("Yahoo Finance returned no candles.");
+            return EmptyDocument(symbol, expectedSymbol, currency, intervalToken, marketState, regularStart, regularEnd, regularPrice, regularTime);
         }
 
         var quote = result.GetProperty("indicators").GetProperty("quote");
         if (quote.ValueKind != JsonValueKind.Array || quote.GetArrayLength() == 0)
         {
-            throw new YahooChartException("Yahoo Finance returned no candles.");
+            return EmptyDocument(symbol, expectedSymbol, currency, intervalToken, marketState, regularStart, regularEnd, regularPrice, regularTime);
         }
 
         var bars = quote[0];
@@ -155,7 +210,7 @@ public static class YahooChartParser
 
         if (ordered.Count == 0)
         {
-            throw new YahooChartException("Yahoo Finance returned no candles.");
+            return EmptyDocument(symbol, expectedSymbol, currency, intervalToken, marketState, regularStart, regularEnd, regularPrice, regularTime);
         }
 
         if (ordered.Count > maxBars)
@@ -163,7 +218,41 @@ public static class YahooChartParser
             ordered.RemoveRange(0, ordered.Count - maxBars);
         }
 
-        return new YahooHistorySeries(symbol ?? expectedSymbol, currency, intervalToken, ordered);
+        var series = new YahooHistorySeries(symbol ?? expectedSymbol, currency, intervalToken, ordered);
+        return new YahooChartDocument(series, marketState, regularStart, regularEnd, regularPrice, regularTime);
+    }
+
+    private static YahooChartDocument EmptyDocument(
+        string? symbol,
+        string expectedSymbol,
+        string currency,
+        string intervalToken,
+        string? marketState,
+        DateTimeOffset? regularStart,
+        DateTimeOffset? regularEnd,
+        decimal? regularPrice,
+        DateTimeOffset? regularTime) =>
+        new(
+            new YahooHistorySeries(symbol ?? expectedSymbol, currency, intervalToken, []),
+            marketState,
+            regularStart,
+            regularEnd,
+            regularPrice,
+            regularTime);
+
+    private static DateTimeOffset? ReadUnix(JsonElement element, string name)
+    {
+        if (!element.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Number)
+        {
+            return null;
+        }
+
+        if (value.TryGetInt64(out var seconds) && seconds > 0)
+        {
+            return DateTimeOffset.FromUnixTimeSeconds(seconds);
+        }
+
+        return null;
     }
 
     private static bool TryDecimal(JsonElement element, out decimal value)

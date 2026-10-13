@@ -46,7 +46,7 @@ export function VisaoGeralView() {
             INVESTIMENTOS PRO / VISÃO GERAL
           </div>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-[#1c1917] sm:text-3xl">Olá, Convidado</h1>
-          <p className="mt-1 text-xs text-stone-500">Resumo da conta simulada compartilhada e das operações deste pregão.</p>
+          <p className="mt-1 text-xs text-stone-500">Resumo da conta de demonstração compartilhada e das operações deste pregão.</p>
         </div>
         <button
           type="button"

@@ -56,6 +56,23 @@ public sealed class YahooChartTests
     }
 
     [Fact]
+    public void TheSessionFieldsComeFromTheChartMeta()
+    {
+        const string payload = """
+            {"chart":{"result":[{"meta":{"currency":"BRL","symbol":"PETR4.SA","marketState":"REGULAR","regularMarketPrice":36.54999923706055,"regularMarketTime":1790000000,"currentTradingPeriod":{"regular":{"start":1789974000,"end":1789999200}}},"timestamp":[1789974000],"indicators":{"quote":[{"open":[36.1],"high":[36.8],"low":[36.0],"close":[36.4],"volume":[100]}]}}],"error":null}}
+            """;
+
+        var document = YahooChartParser.ParseDocument(payload, "PETR4.SA", "1m", 0.01m, 2, 10);
+
+        Assert.Equal("REGULAR", document.MarketState);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1789974000), document.RegularStart);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1789999200), document.RegularEnd);
+        Assert.Equal(36.55m, document.RegularMarketPrice);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1790000000), document.RegularMarketTime);
+        Assert.Equal(36.40m, Assert.Single(document.Series.Bars).Close);
+    }
+
+    [Fact]
     public void ADifferentSymbolOrAnErrorPayloadIsRejected()
     {
         Assert.Throws<YahooChartException>(() =>

@@ -21,7 +21,7 @@ export function DemoAccountScreen() {
           Investimentos <span className="text-[#9a3412]">Pro</span>
         </h1>
         <p className="mt-2 text-center text-xs leading-relaxed text-stone-500">
-          Pregão simulado de day trade. Uma conta, o mesmo livro para quem entra.
+          Pregão da B3 pelas cotações do Yahoo. Uma conta de demonstração, o mesmo livro para quem entra.
         </p>
 
         <div className="mt-4 flex justify-center">

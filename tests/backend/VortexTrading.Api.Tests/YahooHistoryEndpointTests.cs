@@ -6,7 +6,10 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using VortexTrading.Api.Market;
+using VortexTrading.Application.MarketData;
+using VortexTrading.Domain.Common.Time;
 using VortexTrading.Infrastructure.MarketData.Yahoo;
+using VortexTrading.Infrastructure.Trading.Session;
 
 namespace VortexTrading.Api.Tests;
 
@@ -85,6 +88,30 @@ public sealed class YahooHistoryEndpointTests
     }
 
     [Fact]
+    public async Task ASessionTapeBuildsTheFormationCandleAndDoesNotCallYahoo()
+    {
+        await using var host = await Host.Start(Payload, sessionTape: true);
+        var response = await host.Client.GetAsync("/api/market/history?ticker=PETR4&interval=15m&maxBars=30", TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        var root = json.RootElement;
+        var candle = Assert.Single(root.GetProperty("candles").EnumerateArray());
+        Assert.Equal("2026-10-13T13:00:00Z", candle.GetProperty("openTime").GetString());
+        Assert.Equal("2026-10-13T13:15:00Z", candle.GetProperty("closeTime").GetString());
+        Assert.Equal("10.00", candle.GetProperty("open").GetString());
+        Assert.Equal("12.00", candle.GetProperty("high").GetString());
+        Assert.Equal("9.00", candle.GetProperty("low").GetString());
+        Assert.Equal("11.50", candle.GetProperty("close").GetString());
+        var minutes = root.GetProperty("formingMinutes").EnumerateArray().ToArray();
+        Assert.Equal(2, minutes.Length);
+        Assert.Equal("2026-10-13T13:00:00Z", minutes[0].GetProperty("openTime").GetString());
+        Assert.Equal("2026-10-13T13:14:00Z", minutes[1].GetProperty("openTime").GetString());
+        Assert.Equal("11.50", minutes[1].GetProperty("close").GetString());
+        Assert.Empty(host.Paths);
+    }
+
+    [Fact]
     public async Task AnUnknownTickerNeverCallsYahoo()
     {
         await using var host = await Host.Start(Payload);
@@ -109,7 +136,7 @@ public sealed class YahooHistoryEndpointTests
         public HttpClient Client => client;
         public List<string> Paths => paths;
 
-        public static async Task<Host> Start(string payload)
+        public static async Task<Host> Start(string payload, bool sessionTape = false)
         {
             var paths = new List<string>();
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
@@ -120,6 +147,20 @@ public sealed class YahooHistoryEndpointTests
                 BaseAddress = new Uri("https://query1.finance.yahoo.com/")
             };
             builder.Services.AddSingleton(new YahooFinanceChartClient(http));
+            if (sessionTape)
+            {
+                var session = new PaperTradingSession();
+                var open = new DateTimeOffset(2026, 10, 13, 13, 0, 0, TimeSpan.Zero);
+                session.ApplyMarketRound(new MarketRound(false,
+                [
+                    new InstrumentMarketUpdate("PETR4", 11.5m, open.AddMinutes(14),
+                    [
+                        new SessionBar(new UtcInstant(open), 10m, 11m, 9m, 10.5m, 3m),
+                        new SessionBar(new UtcInstant(open.AddMinutes(14)), 11m, 12m, 10.5m, 11.5m, 2m)
+                    ])
+                ]));
+                builder.Services.AddSingleton(session);
+            }
 
             var app = builder.Build();
             app.MapYahooHistoryEndpoints();

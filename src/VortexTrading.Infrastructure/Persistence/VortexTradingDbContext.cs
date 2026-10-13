@@ -23,6 +23,8 @@ public sealed class VortexTradingDbContext : DbContext
 
     public DbSet<Domain.Trading.OrderFill> OrderFills => Set<Domain.Trading.OrderFill>();
 
+    internal DbSet<MinuteBarRow> MinuteBars => Set<MinuteBarRow>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);

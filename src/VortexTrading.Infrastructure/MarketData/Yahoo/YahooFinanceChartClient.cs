@@ -32,13 +32,13 @@ public readonly record struct YahooInterval(string Token, string QueryInterval, 
     }
 }
 
-/// <summary>
-/// Reads delayed candles from the public Yahoo chart endpoint.
-/// Nothing returned here is published into the paper session.
-/// </summary>
+/// <summary>Reads the public Yahoo chart endpoint. The session feed publishes the same documents.</summary>
 public sealed class YahooFinanceChartClient(HttpClient http)
 {
     public const int MaximumBars = 500;
+
+    /// <summary>One-minute bars kept from a five-day Yahoo read. Five cash sessions fit; the chart aggregates them.</summary>
+    public const int SessionSeriesBars = 8_000;
 
     public async Task<YahooHistorySeries> LoadAsync(
         string yahooSymbol,
@@ -49,8 +49,22 @@ public sealed class YahooFinanceChartClient(HttpClient http)
         CancellationToken cancellationToken,
         decimal scale = 1m)
     {
+        var document = await LoadDocumentAsync(
+            yahooSymbol, interval, tickSize, decimals, maxBars, cancellationToken, scale);
+        return document.Series;
+    }
+
+    public async Task<YahooChartDocument> LoadDocumentAsync(
+        string yahooSymbol,
+        YahooInterval interval,
+        decimal tickSize,
+        int decimals,
+        int maxBars,
+        CancellationToken cancellationToken,
+        decimal scale = 1m)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(yahooSymbol);
-        if (maxBars is < 1 or > MaximumBars)
+        if (maxBars is < 1 or > SessionSeriesBars)
         {
             throw new ArgumentOutOfRangeException(nameof(maxBars));
         }
@@ -64,6 +78,6 @@ public sealed class YahooFinanceChartClient(HttpClient http)
         }
 
         var json = await response.Content.ReadAsStringAsync(cancellationToken);
-        return YahooChartParser.Parse(json, yahooSymbol, interval.Token, tickSize, decimals, maxBars, scale);
+        return YahooChartParser.ParseDocument(json, yahooSymbol, interval.Token, tickSize, decimals, maxBars, scale);
     }
 }

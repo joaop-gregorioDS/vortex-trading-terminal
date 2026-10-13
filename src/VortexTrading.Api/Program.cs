@@ -19,7 +19,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 
-// The simulated trading session is the product itself, so it is registered in every environment.
+// The paper session is the product itself, so it is registered in every environment.
 // Only the demonstration chart dataset stays Development-only, because it is a fixed fixture rather
 // than a market.
 builder.Services.AddPaperTradingSession(builder.Configuration);
@@ -33,7 +33,7 @@ if (builder.Environment.IsDevelopment())
         {
             Title = "Vortex Trading Terminal",
             Version = "v1",
-            Description = "Pregão simulado de day trade. A conta de demonstração é compartilhada."
+            Description = "Pregão da B3 pelas cotações gratuitas do Yahoo Finance. A conta de demonstração é compartilhada."
         });
     });
 }

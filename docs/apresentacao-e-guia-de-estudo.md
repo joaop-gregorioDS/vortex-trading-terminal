@@ -125,7 +125,7 @@ O motor de execução foi desenhado para eliminar aleatoriedades e comportamento
    - Evita condições de corrida em concorrência multithread.
    - Garante que eventos sejam drenados e persistidos antes que novas operações alterem o livro.
 3. **`SimulationClock`**:
-   - O tempo não é obtido via `DateTime.UtcNow`. É um relógio virtual derivado estritamente do timestamp das observações publicadas pelo feed do mercado simulado.
+   - O tempo da ordem não é o relógio da máquina. É o horário do último negócio publicado pelo feed. Esse feed lê o Yahoo Finance e só avança enquanto o pregão regular da B3 está aberto.
 
 ---
 
@@ -257,7 +257,7 @@ Para quem for estudar este repositório, recomenda-se a seguinte sequência peda
 ## 10. Desafios e Extensões Sugeridas para Aprendizado
 
 Caso deseje evoluir o projeto como exercício prático:
-- **Desafio 1 (Sessão simulada)**: O módulo `Risk` já existe. Acompanhe um print desde `PublishFeedRound` até a cotação, o candle e o livro, e explique por que o valor do ponto entra só na leitura da API, fora de `Position`.
+- **Desafio 1 (Pregão Yahoo)**: O módulo `Risk` já existe. Acompanhe uma leitura desde `YahooMarketFeed` e `ApplyMarketRound` até a cotação, o candle e o livro, e explique por que o tape congela quando o pregão encerra e por que o valor do ponto entra só na leitura da API, fora de `Position`.
 - **Desafio 2 (Indicador Técnico)**: Adicionar um novo indicador à engine (ex: *Commodity Channel Index - CCI* ou *Keltner Channels*), criando a suite de testes unitários causal e batch correspondente.
 - **Desafio 3 (Real-Time)**: Substituir o mecanismo de polling do frontend (`TradingPanel`) por um canal em tempo real baseado em **SignalR** ou **Server-Sent Events (SSE)**.
 - **Desafio 4 (Strategy Engine)**: Implementar um avaliador simples de estratégias (*Moving Average Crossover*) que consuma os eventos de replay e gere ordens de compra e venda automaticamente.

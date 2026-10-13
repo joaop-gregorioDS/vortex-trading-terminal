@@ -75,7 +75,7 @@ public static class MarketQuotesEndpoints
         });
     }
 
-    /// <summary>Quotes for every catalog instrument, from the prints of the simulated day.</summary>
+    /// <summary>Quotes for every catalog instrument, from the Yahoo session bars or the session prints.</summary>
     public static MarketQuoteResponse[] BuildQuotes(PaperTradingSession session)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -86,10 +86,15 @@ public static class MarketQuotesEndpoints
 
         return CandleAggregator.Catalog.Select(profile =>
         {
+            var sessionBars = session.BarsFor(profile.InstrumentId);
             var prints = session.ObservationsFor(profile.InstrumentId)
                 .Select(observation => new MarketPrint(observation.EventTime, observation.ReferencePrice, observation.Volume))
                 .ToArray();
-            var quote = day is null ? DayQuote.Empty : PrintSeries.Summarize(prints, day.Value);
+            var quote = sessionBars.Count > 0 && day is not null
+                ? SessionBarSeries.Summarize(sessionBars, day.Value)
+                : day is null
+                    ? DayQuote.Empty
+                    : PrintSeries.Summarize(prints, day.Value);
             var (name, category) = Names.TryGetValue(profile.Ticker, out var label)
                 ? label
                 : (profile.Ticker, "Ações");
