@@ -1,0 +1,24 @@
+{
+  "ticker": "PETR4",
+  "yahooSymbol": "PETR4.SA",
+  "interval": "1d",
+  "currency": "BRL",
+  "delayed": true,
+  "decimals": 2,
+  "tickSize": "0.01",
+  "seriesName": "PETR4",
+  "note": "Série do servidor.",
+  "candles": [
+    {
+      "openTime": "2026-10-13T00:00:00Z",
+      "closeTime": "2026-10-14T00:00:00Z",
+      "open": "36.10",
+      "high": "36.80",
+      "low": "36.00",
+      "close": "36.50",
+      "volume": "1000"
+    }
+  ],
+  "formingMinutes": [],
+  "source": "fixture"
+}

@@ -1,0 +1,196 @@
+name: Desktop
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ["desktop-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Prefixo desktop-. O ci.yml usa o prefixo ci- no mesmo formato.
+concurrency:
+  group: desktop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop-check:
+    name: desktop-check
+    if: github.ref_type != 'tag'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # rust-toolchain.toml está em src-tauri. O rustup na raiz do repositório não o vê.
+      - name: Rust 1.90.0
+        uses: dtolnay/rust-toolchain@1.90.0
+
+      - name: Cache do Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Node 24
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Bibliotecas Linux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Dependências do front
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: cargo test
+        working-directory: apps/desktop/src-tauri
+        env:
+          VORTEX_WRITE_BINDINGS: ""
+        run: cargo test --locked
+
+      - name: Vitest
+        working-directory: apps/desktop
+        run: npm test
+
+      # Compara os bindings commitados. Vazio não é "1", então o teste não regrava.
+      - name: Drift dos bindings
+        working-directory: apps/desktop/src-tauri
+        env:
+          VORTEX_WRITE_BINDINGS: ""
+        run: cargo test --locked --lib bindings::bindings_match_committed_sources -- --exact
+
+      # EmbarkStudios/cargo-deny-action v2.1.1, cargo-deny 0.20.2.
+      - name: cargo deny
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25
+        with:
+          manifest-path: apps/desktop/src-tauri/Cargo.toml
+          arguments: "--locked --all-features"
+          rust-version: "1.90.0"
+
+  desktop-release:
+    name: desktop-release
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            args: --bundles appimage,deb
+          - os: macos-latest
+            args: --target universal-apple-darwin --bundles dmg
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Rust 1.90.0
+        uses: dtolnay/rust-toolchain@1.90.0
+
+      - name: Alvos universais
+        if: matrix.os == 'macos-latest'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Cache do Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Node 24
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Bibliotecas Linux
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Dependências do front
+        working-directory: apps/desktop
+        run: npm ci
+
+      # Sem estes segredos o build macOS pode gerar um dmg sem notarização.
+      # APPLE_API_KEY é o Key ID. APPLE_API_KEY_P8 é o conteúdo do .p8.
+      - name: Segredos Apple obrigatórios
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in APPLE_SIGNING_IDENTITY APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_P8 APPLE_TEAM_ID; do
+            if [ -z "${!name}" ]; then
+              echo "Segredo ausente: $name"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "O job macOS para antes do build. Um dmg sem notarização não conta como sucesso."
+            exit 1
+          fi
+
+      - name: Chave da API Apple
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+          last="$(tail -c 1 "$RUNNER_TEMP/AuthKey.p8" || true)"
+          if [ -n "$last" ]; then
+            printf '\n' >> "$RUNNER_TEMP/AuthKey.p8"
+          fi
+
+      # tauri-apps/tauri-action action-v1.0.0. Sem --skip-stapling e sem updater.
+      - name: Bundle Linux
+        if: matrix.os == 'ubuntu-22.04'
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          args: ${{ matrix.args }}
+          releaseDraft: true
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
+
+      - name: Bundle macOS
+        if: matrix.os == 'macos-latest'
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: apps/desktop
+          args: ${{ matrix.args }}
+          releaseDraft: true
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false

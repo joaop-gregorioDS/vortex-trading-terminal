@@ -1,0 +1,30 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Janela principal. A WebView não recebe fs, shell nem http.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "allow-get-terminal",
+    "allow-get-chart",
+    "allow-get-history",
+    "allow-get-config",
+    "allow-set-theme",
+    "allow-health-live",
+    "allow-health-ready",
+    "allow-get-status",
+    "allow-submit-order",
+    "allow-chart-preview",
+    "allow-revise-order",
+    "allow-cancel-order",
+    "allow-place-protection",
+    "allow-flatten",
+    "allow-reverse",
+    "allow-emergency-flat",
+    "allow-reset-session",
+    "allow-confirm-danger",
+    "allow-get-performance",
+    "allow-get-trades",
+    "allow-export-trades-csv"
+  ]
+}

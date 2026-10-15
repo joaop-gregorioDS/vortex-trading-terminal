@@ -1,0 +1,39 @@
+[package]
+name = "vortex-desktop"
+version = "0.1.0"
+description = "Vortex Desktop, cliente fino da API de paper trading"
+edition = "2021"
+rust-version = "1.90"
+publish = false
+
+[lib]
+name = "vortex_desktop"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "=2.7.2", features = [] }
+
+[dependencies]
+reqwest = { version = "=0.13.5", default-features = false, features = ["json", "rustls", "charset", "http2"] }
+rust_decimal = { version = "=1.43.0", features = ["serde-with-str"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+getrandom = "=0.2.17"
+tauri = { version = "=2.12.3", features = ["tray-icon"] }
+tauri-plugin-dialog = "=2.7.3"
+tauri-plugin-notification = "=2.6.0"
+tauri-plugin-single-instance = "=2.5.3"
+tauri-plugin-store = "=2.5.0"
+tauri-plugin-window-state = "=2.5.0"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync", "net"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+ts-rs = { version = "=12.0.1", features = ["serde-compat"] }
+url = "2"
+
+[dev-dependencies]
+wiremock = "=0.6.5"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

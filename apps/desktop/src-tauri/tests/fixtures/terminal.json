@@ -1,0 +1,49 @@
+{
+  "simulatedTime": "2026-10-14T13:00:00Z",
+  "sessionOpen": true,
+  "futureField": "ignored",
+  "quotes": [
+    {
+      "ticker": "PETR4",
+      "name": "Petrobras PN",
+      "category": "equity",
+      "instrumentId": "11111111-1111-1111-1111-111111111111",
+      "lastPrice": "36.50",
+      "changePercent": "0.12",
+      "changePoints": "0.04",
+      "min": "36.10",
+      "max": "36.80",
+      "volume": "1000",
+      "updatedAt": "2026-10-14T13:00:00Z",
+      "extra": 1
+    }
+  ],
+  "portfolio": {
+    "cash": "100000.00",
+    "equity": "100000.00",
+    "totalCost": "0",
+    "realizedProfitAndLoss": "0",
+    "unrealizedProfitAndLoss": "0",
+    "totalProfitAndLoss": "1.000000000000000000000000001",
+    "positions": []
+  },
+  "orders": [],
+  "performance": {
+    "startingBalance": "100000",
+    "currentBalance": "100000",
+    "equity": "100000",
+    "realizedPnl": "0",
+    "dailyPnl": "0",
+    "winRate": "0",
+    "winsCount": 0,
+    "lossesCount": 0,
+    "totalTrades": 0,
+    "profitFactor": "0",
+    "payoff": "0",
+    "maxDrawdown": "0",
+    "bestTrade": null,
+    "worstTrade": null,
+    "equityCurve": []
+  },
+  "closedTrades": []
+}

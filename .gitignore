@@ -8,8 +8,12 @@ obj/
 *.sln.docstates
 TestResults/
 
+# Rust
+target/
+
 # Node / Next.js build and test artifacts
 node_modules/
+apps/desktop/dist/
 .next/
 out/
 coverage/

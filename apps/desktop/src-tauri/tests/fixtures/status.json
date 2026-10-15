@@ -1,0 +1,14 @@
+{
+  "instrumentId": "11111111-1111-1111-1111-111111111111",
+  "simulatedTime": "2026-10-14T13:00:00Z",
+  "lastPrice": "36.50",
+  "restingOrderCount": 1,
+  "orderCount": 2,
+  "filledOrderCount": 1,
+  "openOrderCount": 1,
+  "rejectedOrderCount": 0,
+  "fillCount": 1,
+  "tradedQuantity": "1.000000000000000000000000001",
+  "restoredOrderCount": 0,
+  "source": "fixture"
+}

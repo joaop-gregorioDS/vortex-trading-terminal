@@ -1,0 +1,53 @@
+# Lista fechada em docs/desktop/packaging-and-ci.md.
+# MPL-2.0 só entra se o grafo real exigir, e nesse caso com ADR.
+# GPL não entra sem decisão. Licença extra só com o nome que o check imprimir.
+
+[graph]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+]
+all-features = true
+
+[advisories]
+unmaintained = "all"
+unsound = "all"
+yanked = "deny"
+ignore = [
+    # glib-macros 0.18.5 e gtk3-macros 0.18.2, só no alvo Linux (webkit2gtk).
+    # O aviso diz que não há upgrade seguro. Não é vulnerabilidade de runtime.
+    { id = "RUSTSEC-2024-0370", reason = "proc-macro-error via gtk no Linux; sem versao segura" },
+    # glib 0.18.5 vem do Tauri 2.12.3 (gtk 0.18 / webkit2gtk). O conserto é glib >=0.20,
+    # linha que este Tauri não usa. O app não chama VariantStrIter.
+    { id = "RUSTSEC-2024-0429", reason = "glib 0.18.5 preso ao Tauri 2.12.3; conserto so em 0.20" },
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+deny = [
+    { crate = "openssl", use-instead = "rustls" },
+    { crate = "openssl-sys", use-instead = "rustls" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+[licenses]
+confidence-threshold = 0.93
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    # O grafo real puxa MPL. ADR-048 registra.
+    "MPL-2.0",
+    # foldhash 0.2.0, via dom_query e tauri-utils.
+    "Zlib",
+]
+private = { ignore = true }
